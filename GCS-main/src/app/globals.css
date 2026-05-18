@@ -1,0 +1,192 @@
+@import "tailwindcss";
+
+/* ── ARNOBOT Brand tokens ─────────────────────────────────────────── */
+:root {
+  --arno-black:       #000000;
+  --arno-near-black:  #0a0a0a;
+  --arno-dark:        #111111;
+  --arno-white:       #ffffff;
+  --arno-off-white:   #f5f5f5;
+  --arno-grey-light:  #e8e8e8;
+  --arno-grey-mid:    #999999;
+  --arno-grey-dark:   #444444;
+  --arno-blue:        #38559D;
+  --arno-blue-light:  #A7BCE3;
+  --arno-blue-deep:   #200B76;
+}
+
+/* ── Dark theme (default) ─────────────────────────────────────────── */
+:root,
+[data-theme="dark"] {
+  --bg-primary:    #000000;
+  --bg-secondary:  #0a0a0a;
+  --bg-card:       #111111;
+  --bg-elevated:   #181818;
+  --bg-hover:      #1e1e1e;
+
+  --border-subtle:  rgba(255,255,255,0.06);
+  --border-default: rgba(255,255,255,0.12);
+  --border-bright:  #38559D;
+
+  --accent:       #A7BCE3;
+  --accent-dim:   #38559D;
+  --accent-glow:  rgba(167,188,227,0.08);
+
+  --text-primary:   #ffffff;
+  --text-secondary: rgba(255,255,255,0.55);
+  --text-dim:       rgba(255,255,255,0.3);
+
+  --accent-green:  #10b981;
+  --accent-red:    #ef4444;
+  --accent-yellow: #f59e0b;
+  --accent-orange: #f97316;
+
+  --scrollbar-track: #0a0a0a;
+  --scrollbar-thumb: #38559D;
+}
+
+/* ── Light theme ──────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-primary:    #f5f5f5;
+  --bg-secondary:  #ffffff;
+  --bg-card:       #ffffff;
+  --bg-elevated:   #eef1f7;
+  --bg-hover:      #e8ecf5;
+
+  --border-subtle:  #e8e8e8;
+  --border-default: #c8d0e0;
+  --border-bright:  #38559D;
+
+  --accent:       #38559D;
+  --accent-dim:   #200B76;
+  --accent-glow:  rgba(56,85,157,0.08);
+
+  --text-primary:   #111111;
+  --text-secondary: #444444;
+  --text-dim:       #999999;
+
+  --accent-green:  #059669;
+  --accent-red:    #dc2626;
+  --accent-yellow: #d97706;
+  --accent-orange: #ea580c;
+
+  --scrollbar-track: #e8e8e8;
+  --scrollbar-thumb: #38559D;
+}
+
+@theme inline {
+  --color-background: var(--bg-primary);
+  --color-foreground: var(--text-primary);
+  --font-sans: var(--font-dm-sans), system-ui, sans-serif;
+  --font-display: var(--font-syne), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), 'Courier New', monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-dm-sans), 'DM Sans', system-ui, sans-serif;
+  font-weight: 300;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+h1, h2, h3, h4, h5, h6,
+.font-display {
+  font-family: var(--font-syne), 'Syne', system-ui, sans-serif;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+/* ── GCS utility cards ────────────────────────────────────────────── */
+.gcs-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.gcs-card-elevated {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+/* ── Brand typography helpers ─────────────────────────────────────── */
+.eyebrow {
+  font-family: var(--font-syne), 'Syne', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.accent-text { color: var(--accent); }
+.accent-border { border-color: var(--accent); }
+
+/* ── Status dots ──────────────────────────────────────────────────── */
+.status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.status-dot.connected    { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
+.status-dot.disconnected { background: var(--accent-red); }
+.status-dot.reconnecting { background: var(--accent-yellow); animation: pulse 1s infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+/* ── Leaflet dark/light overrides ─────────────────────────────────── */
+.leaflet-container { background: var(--bg-primary); font-family: inherit; }
+.leaflet-control-attribution { display: none !important; }
+.leaflet-control-zoom a {
+  background: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  color: var(--text-secondary) !important;
+}
+.leaflet-control-zoom a:hover {
+  background: var(--bg-hover) !important;
+  color: var(--accent) !important;
+}
+.leaflet-tooltip {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border-default) !important;
+  color: var(--text-primary) !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+}
+.leaflet-tooltip::before { display: none; }
+
+/* ── Diagonal hatch texture overlay (dark mode) ───────────────────── */
+[data-theme="dark"] .hatch-overlay,
+:root .hatch-overlay {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(255,255,255,0.015) 0px,
+    rgba(255,255,255,0.015) 1px,
+    transparent 1px,
+    transparent 8px
+  );
+}
+
+[data-theme="light"] .hatch-overlay {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(0,0,0,0.02) 0px,
+    rgba(0,0,0,0.02) 1px,
+    transparent 1px,
+    transparent 8px
+  );
+}
