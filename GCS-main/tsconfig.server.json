@@ -7,5 +7,5 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["server.ts", "telemetry-server.ts"]
+  "include": ["server.ts"]
 }

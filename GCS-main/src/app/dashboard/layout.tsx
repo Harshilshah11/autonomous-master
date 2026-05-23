@@ -1,11 +1,12 @@
 'use client';
 import { Header } from '@/components/navigation/Header';
 import { Sidebar } from '@/components/navigation/Sidebar';
-import { useTelemetrySocket } from '@/lib/hooks/useTelemetrySocket';
+import { useTelemetryPoller } from '@/lib/hooks/useTelemetryPoller';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  // Connect to the Python telemetry_server.py WebSocket bridge
-  useTelemetrySocket();
+  // Global odometry poll only — the Header (connection/battery/mode/armed) is on
+  // every page. Mission polling is opted into per-page (mission pages only).
+  useTelemetryPoller({ odometry: true, mission: false });
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -19,4 +20,3 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     </div>
   );
 }
-

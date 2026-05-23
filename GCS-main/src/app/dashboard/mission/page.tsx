@@ -9,8 +9,12 @@ import { CommandPanel } from '@/components/mission/CommandPanel';
 import { WaypointPanel } from '@/components/mission/WaypointPanel';
 import { ManualControlPanel } from '@/components/mission/ManualControlPanel';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
+import { useTelemetryPoller } from '@/lib/hooks/useTelemetryPoller';
 
 export default function MissionPage() {
+  // Odometry comes from the layout; this page additionally needs live mission state.
+  useTelemetryPoller({ odometry: false, mission: true });
+
   const missionStatus = useVehicleStore((s) => s.missionStatus);
   const isArmed = useVehicleStore((s) => s.isArmed);
   const waypoints = useVehicleStore((s) => s.waypoints);

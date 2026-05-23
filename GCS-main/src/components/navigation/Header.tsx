@@ -1,31 +1,16 @@
 'use client';
-import { useQuery } from '@apollo/client/react';
-import { GET_TELEMETRY, GET_CONNECTION_STATUS } from '@/lib/graphql/queries';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
 import { useEffect, useState } from 'react';
 import { Wifi, WifiOff, BatteryCharging, Clock } from 'lucide-react';
-import { sendManualCommand } from '@/lib/hooks/useTelemetrySocket';
+import { setMode } from '@/lib/api/commands';
 import { ThemeToggle } from '@/components/navigation/ThemeToggle';
-import type { GetTelemetryResponse, GetConnectionStatusResponse } from '@/types';
+import toast from 'react-hot-toast';
 
 interface HeaderProps { title: string; }
 
 export function Header({ title }: HeaderProps) {
-  const { updateTelemetry, setConnectionStatus, setBotMode } = useVehicleStore();
+  const setBotMode = useVehicleStore((s) => s.setBotMode);
   const [time, setTime] = useState('');
-
-  // We now get real-time telemetry via WebSocket in DashboardLayout.
-  // Slow polling is disabled to prevent overwriting fast telemetry data.
-  // const { data: telData }  = useQuery<GetTelemetryResponse>(GET_TELEMETRY,         { pollInterval: 1000 });
-  const { data: connData } = useQuery<GetConnectionStatusResponse>(GET_CONNECTION_STATUS, { pollInterval: 2000 });
-
-  // useEffect(() => {
-  //   if (telData?.telemetry) updateTelemetry(telData.telemetry);
-  // }, [telData, updateTelemetry]);
-
-  useEffect(() => {
-    if (connData?.connectionStatus) setConnectionStatus(connData.connectionStatus);
-  }, [connData, setConnectionStatus]);
 
   useEffect(() => {
     const tick = () => setTime(new Date().toLocaleTimeString('en-IN', { hour12: false }));
@@ -37,10 +22,20 @@ export function Header({ title }: HeaderProps) {
   const telemetry  = useVehicleStore((s) => s.telemetry);
   const connStatus = useVehicleStore((s) => s.connectionStatus);
   const isArmed    = useVehicleStore((s) => s.isArmed);
- 
+
   const batt      = telemetry?.battery?.percentage ?? 0;
   const battV     = telemetry?.battery?.voltage ?? 0;
   const battColor = batt > 50 ? 'var(--accent-green)' : batt > 20 ? 'var(--accent-yellow)' : 'var(--accent-red)';
+
+  async function switchMode(mode: 'MANUAL' | 'AUTO') {
+    setBotMode(mode);
+    try {
+      const res = await setMode(mode);
+      if (!res.ok) toast.error(`Mode change failed: ${res.detail ?? res.status}`);
+    } catch (e) {
+      toast.error(`Mode change failed: ${(e as Error).message}`);
+    }
+  }
 
   return (
     <header
@@ -65,11 +60,7 @@ export function Header({ title }: HeaderProps) {
           <span className="eyebrow">Mode</span>
           <div className="flex gap-1">
             <button
-              onClick={() => {
-                console.log('[Header] Switching to MANUAL');
-                setBotMode('MANUAL');
-                sendManualCommand({ type: 'command', data: { botMode: 'MANUAL' } });
-              }}
+              onClick={() => switchMode('MANUAL')}
               className="px-2 py-0.5 rounded text-[10px] font-bold transition-all"
               style={{
                 background: (telemetry?.botMode === 'MANUAL' || !telemetry?.botMode) ? 'var(--accent)' : 'var(--bg-elevated)',
@@ -82,11 +73,7 @@ export function Header({ title }: HeaderProps) {
               MANUAL
             </button>
             <button
-              onClick={() => {
-                console.log('[Header] Switching to AUTO');
-                setBotMode('AUTO');
-                sendManualCommand({ type: 'command', data: { botMode: 'AUTO' } });
-              }}
+              onClick={() => switchMode('AUTO')}
               className="px-2 py-0.5 rounded text-[10px] font-bold transition-all"
               style={{
                 background: telemetry?.botMode === 'AUTO' ? 'var(--accent)' : 'var(--bg-elevated)',
@@ -122,8 +109,8 @@ export function Header({ title }: HeaderProps) {
         </div>
 
         {/* Connection */}
-        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded" 
-          style={{ 
+        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded"
+          style={{
             background: connStatus.connected ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
             border: `1px solid ${connStatus.connected ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`
           }}>
@@ -143,15 +130,13 @@ export function Header({ title }: HeaderProps) {
             {connStatus.connected ? 'CONNECTED' : 'DISCONNECTED'}
           </span>
           {connStatus.connected && (
-            <span 
-              className="ml-1 font-mono text-[9px] font-bold" 
-              style={{ 
-                color: connStatus.latency > 250 ? 'var(--accent-red)' 
-                     : connStatus.latency > 100 ? 'var(--accent-yellow)' 
-                     : 'var(--accent-green)' 
+            <span
+              className="ml-1 font-mono text-[9px] font-bold"
+              style={{
+                color: connStatus.latency > 1000 ? 'var(--accent-red)' : 'var(--accent-green)',
               }}
             >
-              {connStatus.latency > 250 && 'LAG '}
+              {connStatus.latency > 1000 && 'LAG '}
               {connStatus.latency}ms
             </span>
           )}

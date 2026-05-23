@@ -23,7 +23,19 @@ export interface Telemetry {
   timestamp: string;
   botId: string;
 }
-export interface Waypoint { id: string; lat: number; lng: number; alt: number; sequence: number; }
+export interface Waypoint { id: string; lat: number; lng: number; alt: number; sequence: number; label?: string; }
+
+export interface ServerMission {
+  id: string;
+  name: string;
+  description: string;
+  status: string;
+  started_at: string | null;
+  ended_at: string | null;
+  modified_at: string | null;
+  waypoint_count: number;
+  is_active: boolean;
+}
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 export interface Alert { id: string; type: string; message: string; timestamp: string; severity: AlertSeverity; }
 export interface TelemetryPoint { time: string; speed: number; heading: number; alt: number; battery: number; batteryV: number; }
@@ -32,6 +44,13 @@ export type WaypointStatus = 'pending' | 'active' | 'completed';
 export type MapStyle = 'dark' | 'satellite' | 'street';
 export type BreadcrumbPoint = { lat: number; lng: number };
 export interface Mission { id: string; name: string; waypoints: Waypoint[]; }
+
+export interface CameraFeed {
+  id: string;
+  label: string;
+  rtspUrl: string;
+  enabled: boolean;
+}
 
 export interface MissionProgress {
   reached: number;
@@ -66,9 +85,14 @@ export interface ConnectionStatus {
   lastHeartbeat: string;
 }
 
+export type Transport = 'wifi' | 'uart';
+
 export interface GCSSettings {
-  ip: string;
-  port: number;
+  transport: Transport;        // selected link between GCS and Jetson
+  ip: string;                  // WiFi: Jetson IP
+  port: number;                // WiFi: Jetson HTTP port
+  uartDevice: string;          // UART: serial device path (e.g. COM6, /dev/ttyUSB0)
+  uartBaud: number;            // UART: baud rate
   reconnectInterval: number;
   batteryThreshold: number;
   speedThreshold: number;
@@ -76,6 +100,7 @@ export interface GCSSettings {
   showBreadcrumb: boolean;
   showGeofence: boolean;
   chartRefreshMs: number;
+  cameraFeeds: CameraFeed[];
 }
 
 interface VehicleStore {
@@ -95,6 +120,8 @@ interface VehicleStore {
   currentMissionId: string | null;
   cruiseSpeed: number;
   liveMission: LiveMission | null;
+  serverMissions: ServerMission[];
+  activeMissionServerId: string | null;
 
   updateTelemetry: (t: Telemetry) => void;
   addWaypoint: (wp: Omit<Waypoint, 'id'>) => void;
@@ -117,6 +144,9 @@ interface VehicleStore {
   renameMission: (id: string, name: string) => void;
   setCruiseSpeed: (speed: number) => void;
   setLiveMission: (mission: LiveMission | null) => void;
+  setServerMissions: (missions: ServerMission[], activeId: string | null) => void;
+  setActiveMissionServerId: (id: string | null) => void;
+  loadServerWaypoints: (wps: Array<{ sequence: number; lat: number; lng: number; alt: number; label: string }>) => void;
 }
 
 const DEFAULT_TELEMETRY: Telemetry = {
@@ -138,8 +168,11 @@ const DEFAULT_TELEMETRY: Telemetry = {
 };
 
 const DEFAULT_SETTINGS: GCSSettings = {
+  transport: 'wifi',
   ip: '192.168.1.100',
   port: 8000,
+  uartDevice: 'COM6',
+  uartBaud: 460800,
   reconnectInterval: 3,
   batteryThreshold: 20,
   speedThreshold: 8,
@@ -147,6 +180,12 @@ const DEFAULT_SETTINGS: GCSSettings = {
   showBreadcrumb: true,
   showGeofence: true,
   chartRefreshMs: 1000,
+  cameraFeeds: [
+    { id: 'cam1', label: 'Camera 1 – Front', rtspUrl: '', enabled: false },
+    { id: 'cam2', label: 'Camera 2 – Rear',  rtspUrl: '', enabled: false },
+    { id: 'cam3', label: 'Camera 3 – Left',  rtspUrl: '', enabled: false },
+    { id: 'cam4', label: 'Camera 4 – Right', rtspUrl: '', enabled: false },
+  ],
 };
 
 function fmtTime() {
@@ -172,6 +211,8 @@ export const useVehicleStore = create<VehicleStore>()(
       currentMissionId: 'default',
       cruiseSpeed: 5.0,
       liveMission: null,
+      serverMissions: [],
+      activeMissionServerId: null,
 
       updateTelemetry: (t) => set((state) => {
         const point: TelemetryPoint = {
@@ -192,31 +233,15 @@ export const useVehicleStore = create<VehicleStore>()(
         };
       }),
 
-      addWaypoint: (wp) => set((state) => {
-        const newWp = { ...wp, id: crypto.randomUUID() };
-        const newWaypoints = [...state.waypoints, newWp];
-        return {
-          waypoints: newWaypoints,
-          missions: state.missions.map(m => 
-            m.id === state.currentMissionId ? { ...m, waypoints: newWaypoints } : m
-          )
-        };
-      }),
-      removeWaypoint: (id) => set((state) => {
-        const newWaypoints = state.waypoints.filter((w) => w.id !== id).map((w, i) => ({ ...w, sequence: i }));
-        return {
-          waypoints: newWaypoints,
-          missions: state.missions.map(m => 
-            m.id === state.currentMissionId ? { ...m, waypoints: newWaypoints } : m
-          )
-        };
-      }),
-      reorderWaypoints: (waypoints) => set((state) => ({ 
-        waypoints,
-        missions: state.missions.map(m => 
-          m.id === state.currentMissionId ? { ...m, waypoints } : m
-        )
+      addWaypoint: (wp) => set((state) => ({
+        waypoints: [...state.waypoints, { ...wp, id: crypto.randomUUID() }],
       })),
+      removeWaypoint: (id) => set((state) => ({
+        waypoints: state.waypoints
+          .filter((w) => w.id !== id)
+          .map((w, i) => ({ ...w, sequence: i })),
+      })),
+      reorderWaypoints: (waypoints) => set({ waypoints }),
       setArmed: (armed) => set({ isArmed: armed }),
       setMissionStatus: (status) => set((state) => ({
         missionStatus: status,
@@ -239,17 +264,7 @@ export const useVehicleStore = create<VehicleStore>()(
       setBotMode: (mode) => set((state) => ({ 
         telemetry: { ...state.telemetry, botMode: mode } 
       })),
-      clearWaypoints: () => set((state) => {
-        const newWaypoints: Waypoint[] = [];
-        return {
-          waypoints: newWaypoints,
-          currentWaypointIndex: 0,
-          missionStartTime: null,
-          missions: state.missions.map(m => 
-            m.id === state.currentMissionId ? { ...m, waypoints: newWaypoints } : m
-          )
-        };
-      }),
+      clearWaypoints: () => set({ waypoints: [], currentWaypointIndex: 0, missionStartTime: null }),
 
       addMission: (name) => set((state) => {
         const newMission = { id: crypto.randomUUID(), name, waypoints: [] };
@@ -292,20 +307,53 @@ export const useVehicleStore = create<VehicleStore>()(
       })),
       setCruiseSpeed: (speed) => set({ cruiseSpeed: Math.max(0, speed) }),
       setLiveMission: (mission) => set({ liveMission: mission }),
+
+      setServerMissions: (missions, activeId) => set({
+        serverMissions: missions,
+        activeMissionServerId: activeId ?? null,
+      }),
+      setActiveMissionServerId: (id) => set({ activeMissionServerId: id }),
+      loadServerWaypoints: (wps) => set({
+        waypoints: wps.map((wp) => ({
+          id: crypto.randomUUID(),
+          lat: wp.lat,
+          lng: wp.lng,
+          alt: wp.alt,
+          sequence: wp.sequence,
+          label: wp.label,
+        })),
+        currentWaypointIndex: 0,
+        missionStartTime: null,
+      }),
     }),
     {
       name: 'arnobot-gcs-storage',
+      version: 4,                                // bumped after server-backed missions
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({ 
-        waypoints: state.waypoints, 
+      partialize: (state) => ({
+        waypoints: state.waypoints,
         settings: state.settings,
         botMode: state.telemetry.botMode,
         missions: state.missions,
         currentMissionId: state.currentMissionId,
         cruiseSpeed: state.cruiseSpeed
       }),
-      onRehydrateStorage: (state) => {
-        return (rehydratedState, error) => {
+      // Backfill defaults onto persisted state from earlier versions so newly
+      // added settings fields aren't `undefined` on first render (otherwise
+      // <input value={...}> flips from uncontrolled to controlled).
+      migrate: (persisted: any) => {
+        if (persisted && persisted.settings) {
+          persisted.settings = { ...DEFAULT_SETTINGS, ...persisted.settings };
+        }
+        return persisted;
+      },
+      merge: (persisted: any, current) => {
+        const next = { ...current, ...(persisted ?? {}) };
+        next.settings = { ...DEFAULT_SETTINGS, ...(persisted?.settings ?? {}) };
+        return next;
+      },
+      onRehydrateStorage: () => {
+        return (rehydratedState) => {
           if (rehydratedState && (rehydratedState as any).botMode) {
             rehydratedState.telemetry.botMode = (rehydratedState as any).botMode;
           }

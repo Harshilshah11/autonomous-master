@@ -2,6 +2,7 @@
 import dynamic from 'next/dynamic';
 import { MissionProgressPanel } from '@/components/mission/MissionProgressPanel';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
+import { useTelemetryPoller } from '@/lib/hooks/useTelemetryPoller';
 
 const MapView = dynamic(() => import('@/components/map/MapView').then((m) => m.MapView), {
   ssr: false,
@@ -16,6 +17,9 @@ const MapView = dynamic(() => import('@/components/map/MapView').then((m) => m.M
 });
 
 export default function MissionProgressPage() {
+  // Odometry comes from the layout; this page additionally needs live mission state.
+  useTelemetryPoller({ odometry: false, mission: true });
+
   const missionStatus      = useVehicleStore((s) => s.missionStatus);
   const isArmed            = useVehicleStore((s) => s.isArmed);
   const waypoints          = useVehicleStore((s) => s.waypoints);

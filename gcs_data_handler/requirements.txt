@@ -1,0 +1,7 @@
+# Runtime deps actually imported by the gcs_data_handler service.
+psycopg2-binary==2.9.9   # PostgreSQL driver for SQLAlchemy (postgresql://)
+python-dotenv==1.0.1     # .env loading (Utils/models/__init__.py)
+SQLAlchemy==2.0.22       # ORM models + DB session
+pytz==2024.1             # timezone helper (Utils/models/utils.py)
+pyserial                 # UART transport
+Flask                    # HTTP transport (shares the same Router)

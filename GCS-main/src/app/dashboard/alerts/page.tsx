@@ -1,11 +1,8 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { useQuery } from '@apollo/client/react';
+import { useState } from 'react';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
-import { GET_ALERTS } from '@/lib/graphql/queries';
 import { Bell, BellOff, AlertTriangle, Info, AlertCircle, X } from 'lucide-react';
 import type { Alert, AlertSeverity } from '@/types';
-import type { GetAlertsResponse } from '@/types';
 
 type SeverityFilter = AlertSeverity | 'all';
 
@@ -44,17 +41,7 @@ function AlertRow({ alert, onDismiss }: { alert: Alert; onDismiss: () => void })
 
 export default function AlertsPage() {
   const [filter, setFilter] = useState<SeverityFilter>('all');
-  const { alerts, clearAlerts, addAlert } = useVehicleStore();
-
-  const { data: remoteAlerts } = useQuery<GetAlertsResponse>(GET_ALERTS, { pollInterval: 5000 });
-
-  useEffect(() => {
-    if (!remoteAlerts?.alerts) return;
-    remoteAlerts.alerts.forEach((a) => {
-      if (!alerts.find((x) => x.id === a.id)) addAlert(a);
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remoteAlerts]);
+  const { alerts, clearAlerts } = useVehicleStore();
 
   const counts = {
     all: alerts.length,

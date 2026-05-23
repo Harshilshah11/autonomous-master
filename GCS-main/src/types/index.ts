@@ -11,6 +11,9 @@ import type {
   ConnectionStatus,
   MissionStatus,
   BreadcrumbPoint,
+  Transport,
+  CameraFeed,
+  ServerMission,
 } from '@/lib/store/vehicleStore';
 
 export type {
@@ -26,38 +29,12 @@ export type {
   ConnectionStatus,
   MissionStatus,
   BreadcrumbPoint,
+  Transport,
+  CameraFeed,
+  ServerMission,
 };
 
-// Shared GraphQL command result (arm, disarm, estop, rth, etc.)
-export interface GqlCommandResult {
-  success: boolean;
-  message: string;
-}
-
-// Query response shapes
-export interface GetTelemetryResponse        { telemetry: Telemetry; }
-export interface GetConnectionStatusResponse { connectionStatus: ConnectionStatus; }
-export interface GetAlertsResponse           { alerts: Alert[]; }
-export interface GetWaypointsResponse        { waypoints: Waypoint[]; }
-export interface GetSessionsResponse         { sessions: Session[]; }
-
-// Mutation response shapes
-export interface ArmMutationResponse           { arm: GqlCommandResult; }
-export interface DisarmMutationResponse        { disarm: GqlCommandResult; }
-export interface EmergencyStopMutationResponse { emergencyStop: GqlCommandResult; }
-export interface RthMutationResponse           { returnToHome: GqlCommandResult; }
-export interface StartMissionMutationResponse  { startMission: GqlCommandResult; }
-export interface PauseMissionMutationResponse  { pauseMission: GqlCommandResult; }
-export interface UploadMissionMutationResponse { uploadMission: GqlCommandResult; }
-
-export interface WaypointInput {
-  lat: number;
-  lng: number;
-  alt: number;
-  sequence: number;
-}
-
-// Session (from GET_SESSIONS)
+// Mission session entry (historical mission log row).
 export interface Session {
   id: string;
   name: string;
@@ -66,15 +43,6 @@ export interface Session {
   waypoints: number;
   distance: string;
   status: string;
-}
-
-// Login GraphQL mutation response types
-export interface VerifyTokenResponse {
-  VerifyToken: { success: boolean };
-}
-
-export interface LoginMutationResponse {
-  Login: { Response: string; token: string | null };
 }
 
 // Login form

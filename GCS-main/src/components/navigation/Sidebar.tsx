@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import {
   LayoutDashboard, Crosshair, BellRing, Settings,
-  ChevronLeft, ChevronRight, LogOut, Radio, Activity,
+  ChevronLeft, ChevronRight, LogOut, Radio, Activity, Cctv,
 } from 'lucide-react';
 import { useTheme } from '@/components/providers/ThemeProvider';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/mission',          label: 'Mission',          icon: Crosshair },
   { href: '/dashboard/mission-progress', label: 'Mission Progress', icon: Activity },
   { href: '/dashboard/alerts',           label: 'Alerts',           icon: BellRing },
+  { href: '/dashboard/surveillance',     label: 'Surveillance',     icon: Cctv },
   { href: '/dashboard/settings',         label: 'Settings',         icon: Settings },
 ];
 
@@ -25,6 +26,7 @@ export function Sidebar() {
   const router    = useRouter();
   const { theme } = useTheme();
   const botMode   = useVehicleStore((s) => s.telemetry.botMode);
+  const settings  = useVehicleStore((s) => s.settings);
   const [collapsed, setCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -73,16 +75,6 @@ export function Sidebar() {
         />
       </div>
 
-      {/* GCS label under logo when expanded */}
-      {!collapsed && (
-        <div
-          className="px-4 py-1.5 eyebrow"
-          style={{ borderBottom: '1px solid var(--border-subtle)' }}
-        >
-          Ground Control Station
-        </div>
-      )}
-
       {/* Nav links */}
       <nav className="flex-1 py-3 space-y-0.5 px-1.5">
         {filteredNavItems.map(({ href, label, icon: Icon }) => {
@@ -119,7 +111,13 @@ export function Sidebar() {
           style={{ color: 'var(--accent-green)', fontFamily: 'var(--font-geist-mono)' }}
         >
           <Radio size={12} className="shrink-0" />
-          {!collapsed && <span>192.168.1.100</span>}
+          {!collapsed && (
+            <span>
+              {settings.transport === 'wifi'
+                ? `${settings.ip}:${settings.port}`
+                : `UART ${settings.uartDevice}`}
+            </span>
+          )}
         </div>
         <button
           onClick={handleLogout}

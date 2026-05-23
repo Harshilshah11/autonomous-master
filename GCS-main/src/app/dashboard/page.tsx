@@ -8,9 +8,7 @@ const MapView = dynamic(() => import('@/components/map/MapView').then((m) => m.M
 });
 import { SpeedGauge } from '@/components/telemetry/SpeedGauge';
 import { Compass } from '@/components/telemetry/Compass';
-import { AttitudeIndicator } from '@/components/telemetry/AttitudeIndicator';
 import { BatteryCard } from '@/components/telemetry/BatteryCard';
-import { TelemetryChart } from '@/components/telemetry/TelemetryChart';
 import { XYZCard } from '@/components/telemetry/XYZCard';
 import { Activity, Navigation, Gauge, Radio } from 'lucide-react';
 
@@ -58,15 +56,9 @@ export default function DashboardPage() {
         <div className="flex flex-col gap-3 overflow-y-auto" style={{ width: 200, flexShrink: 0 }}>
           <SpeedGauge />
           <Compass />
-          <AttitudeIndicator />
           <BatteryCard />
           <XYZCard />
         </div>
-      </div>
-
-      {/* Chart */}
-      <div className="shrink-0">
-        <TelemetryChart />
       </div>
     </div>
   );

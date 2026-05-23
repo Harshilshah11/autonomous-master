@@ -5,7 +5,7 @@ import {
   CheckCircle2, Circle, Navigation, Clock, Route,
   Flag, Zap, Target, TrendingUp, Plus, Minus, Square,
 } from 'lucide-react';
-import { sendSpeedCommand, stopBot } from '@/lib/hooks/useTelemetrySocket';
+import { drive, stop } from '@/lib/api/commands';
 
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000; // metres
@@ -219,7 +219,7 @@ export function MissionProgressPanel() {
               const base = (isStale || cruiseSpeed === 0) ? currentActual : cruiseSpeed;
               const ns = Math.max(0, Math.round(base - 5)); 
               setCruiseSpeed(ns); 
-              sendSpeedCommand(ns); 
+              drive(ns, 0).catch(() => null);
             }}
             className="p-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-subtle)] hover:border-[var(--accent-red)] text-[var(--accent-red)] transition-all"
             title="Decrease -5"
@@ -241,7 +241,7 @@ export function MissionProgressPanel() {
               const base = (isStale || cruiseSpeed === 0) ? currentActual : cruiseSpeed;
               const ns = Math.round(base + 5); 
               setCruiseSpeed(ns); 
-              sendSpeedCommand(ns); 
+              drive(ns, 0).catch(() => null);
             }}
             className="p-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-subtle)] hover:border-[var(--accent-green)] text-[var(--accent-green)] transition-all"
             title="Increase +5"
@@ -252,7 +252,7 @@ export function MissionProgressPanel() {
 
         {/* Stop Button */}
         <button 
-          onClick={() => { setCruiseSpeed(0); sendSpeedCommand(0); stopBot(); }}
+          onClick={() => { setCruiseSpeed(0); stop().catch(() => null); }}
           className="w-full flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-bold uppercase tracking-wider transition-all"
           style={{ 
             background: 'rgba(239,68,68,0.15)', 

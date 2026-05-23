@@ -1,8 +1,9 @@
 'use client';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, Polygon, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { Plus, Minus, LocateFixed } from 'lucide-react';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
 import { useTheme } from '@/components/providers/ThemeProvider';
 
@@ -32,13 +33,13 @@ function vehicleIcon(heading: number) {
 function waypointIcon(seq: number) {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28">
-      <circle cx="14" cy="14" r="12" fill="#10b981" stroke="white" stroke-width="2"/>
-      <text x="14" y="18" text-anchor="middle" font-size="11" font-weight="bold" fill="black" font-family="monospace">${seq}</text>
+      <circle cx="12" cy="12" r="12" fill="#10b981" stroke="white" stroke-width="2"/>
+      <text x="12" y="18" text-anchor="middle" font-size="11" font-weight="bold" fill="black" font-family="monospace">${seq}</text>
     </svg>`;
   return L.divIcon({
     html: svg,
     iconSize: [28, 28],
-    iconAnchor: [14, 14],
+    iconAnchor: [12, 12],
     className: '',
   });
 }
@@ -113,6 +114,12 @@ function MapController() {
   return null;
 }
 
+function MapRefExposer({ mapRef }: { mapRef: React.MutableRefObject<L.Map | null> }) {
+  const map = useMap();
+  useEffect(() => { mapRef.current = map; }, [map, mapRef]);
+  return null;
+}
+
 interface MapViewProps {
   mode?: 'view' | 'mission' | 'progress';
   height?: string;
@@ -126,7 +133,31 @@ export function MapView({ mode = 'view', height = '100%' }: MapViewProps) {
   const settings         = useVehicleStore((s) => s.settings);
   const removeWaypoint   = useVehicleStore((s) => s.removeWaypoint);
   const currentWpIdx     = useVehicleStore((s) => s.currentWaypointIndex);
+  const connected        = useVehicleStore((s) => s.connectionStatus.connected);
   const { theme }        = useTheme();
+  const mapRef           = useRef<L.Map | null>(null);
+  const [locating, setLocating] = useState(false);
+
+  const handleZoomIn  = () => mapRef.current?.zoomIn();
+  const handleZoomOut = () => mapRef.current?.zoomOut();
+
+  const handleLocate = () => {
+    if (connected) {
+      const { lat, lng } = telemetry.position;
+      mapRef.current?.flyTo([lat, lng], Math.max(mapRef.current?.getZoom() ?? 17, 17), { duration: 0.8 });
+    } else {
+      setLocating(true);
+      navigator.geolocation?.getCurrentPosition(
+        (pos) => {
+          mapRef.current?.flyTo([pos.coords.latitude, pos.coords.longitude], 16, { duration: 1 });
+          setLocating(false);
+        },
+        () => setLocating(false),
+      );
+    }
+  };
+
+  const hasVehicle = connected;
 
   const { lat, lng } = telemetry.position;
 
@@ -164,35 +195,38 @@ export function MapView({ mode = 'view', height = '100%' }: MapViewProps) {
   function waypointIconProgress(seq: number, status: 'completed' | 'active' | 'pending') {
     const fill = status === 'completed' ? '#10b981' : status === 'active' ? '#00b4ff' : '#6b7280';
     const ring = status === 'active'
-      ? `<circle cx="14" cy="14" r="13" fill="none" stroke="#00b4ff" stroke-width="1.5" opacity="0.5"/>`
+      ? `<circle cx="12" cy="12" r="13" fill="none" stroke="#00b4ff" stroke-width="1.5" opacity="0.5"/>`
       : '';
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28">
         ${ring}
-        <circle cx="14" cy="14" r="11" fill="${fill}" stroke="white" stroke-width="2"/>
-        <text x="14" y="18" text-anchor="middle" font-size="11" font-weight="bold" fill="${status === 'pending' ? '#ccc' : 'black'}" font-family="monospace">${seq}</text>
+        <circle cx="12" cy="12" r="11" fill="${fill}" stroke="white" stroke-width="2"/>
+        <text x="12" y="18" text-anchor="middle" font-size="11" font-weight="bold" fill="${status === 'pending' ? '#ccc' : 'black'}" font-family="monospace">${seq}</text>
       </svg>`;
-    return L.divIcon({ html: svg, iconSize: [28, 28], iconAnchor: [14, 14], className: '' });
+    return L.divIcon({ html: svg, iconSize: [28, 28], iconAnchor: [12, 12], className: '' });
   }
 
   return (
     <div style={{ height, width: '100%', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
       <MapContainer
         center={[lat === 0 ? 20 : lat, lng === 0 ? 0 : lng]}
-        zoom={lat === 0 && lng === 0 ? 2 : 15}
+        zoom={lat === 0 && lng === 0 ? 2 : 17}
+        maxZoom={22}
         style={{ width: '100%', height: '100%', background: mapBg }}
-        zoomControl={true}
+        zoomControl={false}
         attributionControl={false}
       >
         <TileLayer
           key={theme}
           url={tileUrl}
           attribution=""
-          maxZoom={19}
+          maxNativeZoom={19}
+          maxZoom={22}
           subdomains="abcd"
         />
 
         <MapController />
+        <MapRefExposer mapRef={mapRef} />
         <MapClickHandler mode={mode} />
 
         {/* Geofence */}
@@ -245,7 +279,7 @@ export function MapView({ mode = 'view', height = '100%' }: MapViewProps) {
               icon={icon}
               eventHandlers={{ click: () => handleWpClick(wp.id) }}
             >
-              <Tooltip direction="top" offset={[0, -14]}>
+              <Tooltip direction="top" offset={[0, -12]}>
                 <span style={{ fontSize: 11 }}>WP{wp.sequence + 1} · {wp.lat.toFixed(5)}, {wp.lng.toFixed(5)}{mode === 'mission' ? ' (click to remove)' : ''}</span>
               </Tooltip>
             </Marker>
@@ -275,11 +309,47 @@ export function MapView({ mode = 'view', height = '100%' }: MapViewProps) {
         <div style={{
           position: 'absolute', bottom: 32, left: '50%', transform: 'translateX(-50%)', zIndex: 1000,
           background: overlayBg, border: `1px solid ${overlayBdr}`,
-          borderRadius: 20, padding: '4px 14px',
+          borderRadius: 20, padding: '4px 12px',
         }}>
           <span style={{ fontSize: 10, color: 'var(--accent-green)' }}>Click map to add waypoint · Click marker to remove</span>
         </div>
       )}
+
+      {/* Custom map controls */}
+      <div style={{
+        position: 'absolute', right: 10, bottom: 36, zIndex: 1000,
+        display: 'flex', flexDirection: 'column', gap: 4,
+      }}>
+        {[
+          { onClick: handleZoomIn,  icon: <Plus size={12} />,         title: 'Zoom in',  accent: false },
+          { onClick: handleZoomOut, icon: <Minus size={12} />,        title: 'Zoom out', accent: false },
+          {
+            onClick: handleLocate,
+            icon: <LocateFixed size={12} style={{ opacity: locating ? 0.4 : 1 }} />,
+            title: hasVehicle ? 'Go to vehicle' : 'Use my location',
+            accent: hasVehicle,
+          },
+        ].map(({ onClick, icon, title, accent }) => (
+          <button
+            key={title}
+            onClick={onClick}
+            title={title}
+            style={{
+              width: 30, height: 30,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              borderRadius: 6,
+              background: overlayBg,
+              border: `1px solid ${accent ? 'var(--accent)' : overlayBdr}`,
+              color: accent ? 'var(--accent)' : (theme === 'dark' ? 'rgba(255,255,255,0.75)' : '#444'),
+              cursor: 'pointer',
+              backdropFilter: 'blur(4px)',
+              transition: 'border-color 0.15s, color 0.15s',
+            }}
+          >
+            {icon}
+          </button>
+        ))}
+      </div>
 
     </div>
   );

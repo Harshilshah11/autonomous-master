@@ -9,14 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@apollo/client": "^4.1.9",
     "@serialport/parser-readline": "^12.0.0",
-    "serialport": "^12.0.0",
-    "tsx": "^4.19.3",
-    "ws": "^8.18.2",
     "@types/leaflet": "^1.9.21",
-    "graphql": "^16.13.2",
-    "graphql-yoga": "^5.21.0",
+    "hls.js": "^1.6.16",
     "jsonwebtoken": "^9.0.3",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.14.0",
@@ -30,7 +25,9 @@
     "react-leaflet": "^5.0.0",
     "react-map-gl": "^8.1.1",
     "recharts": "^3.8.1",
+    "serialport": "^12.0.0",
     "sonner": "^2.0.7",
+    "tsx": "^4.19.3",
     "zustand": "^5.0.13"
   },
   "devDependencies": {
@@ -39,7 +36,6 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/ws": "^8.5.14",
     "cross-env": "^7.0.3",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",

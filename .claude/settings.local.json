@@ -4,7 +4,20 @@
       "Bash(npm install *)",
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Harshil\\\\Desktop\\\\autonomous-master\" -Force)",
       "Bash(Select-Object Name, PSIsContainer)",
-      "Bash(Format-Table -AutoSize)"
+      "Bash(Format-Table -AutoSize)",
+      "Bash(npx tsc *)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(git -C \"C:\\\\Users\\\\Harshil\\\\Desktop\\\\autonomous-master\\\\GCS-main\" log --all --oneline --graph)",
+      "Bash(git *)",
+      "Bash(gh api *)",
+      "Bash(where gh *)",
+      "Bash(powershell -Command \"Get-Command gh -ErrorAction SilentlyContinue\")",
+      "Bash(ls -R src/lib/api src/app/dashboard/surveillance)",
+      "Read(//c/Users/Harshil/Desktop/**)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(python -c \"import sys; sys.argv=['x']; from router import Router; r = Router\\(db_factory=lambda: None\\); print\\('routes:'\\); [print\\(' ', m, p\\) for \\(m,p\\) in sorted\\(r.routes\\)]\")",
+      "Bash(python -c \"import app; print\\('app imports OK'\\)\")"
     ]
   }
 }

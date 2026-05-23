@@ -1,93 +1,96 @@
 'use client';
-import { useMutation } from '@apollo/client/react';
 import toast from 'react-hot-toast';
+import { useState } from 'react';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
-import {
-  MUTATION_EMERGENCY_STOP,
-  MUTATION_RTH, MUTATION_START_MISSION, MUTATION_PAUSE_MISSION,
-} from '@/lib/graphql/queries';
 import { ShieldAlert, Play, Pause, Home, Power, PowerOff, AlertTriangle } from 'lucide-react';
-import { sendManualCommand } from '@/lib/hooks/useTelemetrySocket';
-import type {
-  EmergencyStopMutationResponse,
-  RthMutationResponse,
-  StartMissionMutationResponse,
-  PauseMissionMutationResponse,
-  GqlCommandResult,
-} from '@/types';
-
-function msg(result: GqlCommandResult | null | undefined): string {
-  return result?.message ?? 'OK';
-}
+import { setArm, stop, uploadMission } from '@/lib/api/commands';
 
 export function CommandPanel() {
-  const { isArmed, missionStatus, setArmed, setMissionStatus, addAlert } = useVehicleStore();
-
-  const [estopMut, { loading: estopping }] = useMutation<EmergencyStopMutationResponse>(MUTATION_EMERGENCY_STOP);
-  const [rthMut,   { loading: rthing }]    = useMutation<RthMutationResponse>(MUTATION_RTH);
-  const [startMut, { loading: starting }]  = useMutation<StartMissionMutationResponse>(MUTATION_START_MISSION);
-  const [pauseMut, { loading: pausing }]   = useMutation<PauseMissionMutationResponse>(MUTATION_PAUSE_MISSION);
+  const { isArmed, missionStatus, setArmed, setMissionStatus, addAlert, waypoints } = useVehicleStore();
+  const [busy, setBusy] = useState<null | 'arm' | 'disarm' | 'estop' | 'rth' | 'start' | 'pause'>(null);
 
   async function doArm() {
     if (!confirm('Arm vehicle? Motors will become active.')) return;
+    setBusy('arm');
     try {
+      const res = await setArm(true);
+      if (!res.ok) throw new Error(res.detail ?? 'ARM failed');
       setArmed(true);
-      sendManualCommand({ type: 'command', data: { armStatus: 'Active' } });
       addAlert({ type: 'ARM', message: 'ARM Active command sent', timestamp: new Date().toISOString(), severity: 'warning' });
       toast.success('ARM Active command sent');
-    } catch { toast.error('ARM command failed'); }
+    } catch (e) { toast.error(`ARM failed: ${(e as Error).message}`); }
+    finally { setBusy(null); }
   }
 
   async function doDisarm() {
+    setBusy('disarm');
     try {
+      const res = await setArm(false);
+      if (!res.ok) throw new Error(res.detail ?? 'DISARM failed');
       setArmed(false);
       setMissionStatus('idle');
-      sendManualCommand({ type: 'command', data: { armStatus: 'Inactive' } });
       addAlert({ type: 'DISARM', message: 'ARM Inactive command sent', timestamp: new Date().toISOString(), severity: 'info' });
       toast.success('ARM Inactive command sent');
-    } catch { toast.error('DISARM command failed'); }
+    } catch (e) { toast.error(`DISARM failed: ${(e as Error).message}`); }
+    finally { setBusy(null); }
   }
 
   async function doEStop() {
     if (!confirm('EMERGENCY STOP — cut all motors immediately?')) return;
+    setBusy('estop');
     try {
-      const { data } = await estopMut();
+      // Stop motion, then disarm.
+      await stop().catch(() => null);
+      await setArm(false).catch(() => null);
       setArmed(false);
       setMissionStatus('idle');
-      const m = msg(data?.emergencyStop);
-      addAlert({ type: 'ESTOP', message: m, timestamp: new Date().toISOString(), severity: 'critical' });
-      toast.error(m);
-    } catch { toast.error('E-STOP command failed'); }
+      addAlert({ type: 'ESTOP', message: 'Emergency stop issued', timestamp: new Date().toISOString(), severity: 'critical' });
+      toast.error('Emergency stop issued');
+    } catch (e) { toast.error(`E-STOP failed: ${(e as Error).message}`); }
+    finally { setBusy(null); }
   }
 
   async function doRTH() {
-    if (!confirm('Return to home?')) return;
+    // gcs_data_handler does not expose a dedicated RTH route — emulate by
+    // clearing the current mission so the vehicle holds, then alerting.
+    if (!confirm('Return to home? (clears active mission)')) return;
+    setBusy('rth');
     try {
-      const { data } = await rthMut();
-      const m = msg(data?.returnToHome);
-      addAlert({ type: 'RTH', message: m, timestamp: new Date().toISOString(), severity: 'info' });
-      toast.success(m);
-    } catch { toast.error('RTH command failed'); }
+      await uploadMission([]);
+      setMissionStatus('idle');
+      addAlert({ type: 'RTH', message: 'RTH requested (mission cleared)', timestamp: new Date().toISOString(), severity: 'info' });
+      toast.success('RTH requested');
+    } catch (e) { toast.error(`RTH failed: ${(e as Error).message}`); }
+    finally { setBusy(null); }
   }
 
   async function doStart() {
+    setBusy('start');
     try {
-      const { data } = await startMut();
+      // Re-upload the current waypoints to (re)activate the mission on the bot.
+      if (waypoints.length === 0) {
+        toast.error('No waypoints to start');
+        return;
+      }
+      const payload = waypoints.map((w) => ({ lat: w.lat, lng: w.lng, alt: w.alt, sequence: w.sequence }));
+      const res = await uploadMission(payload);
+      if (!res.ok) throw new Error(res.detail ?? 'start failed');
       setMissionStatus('running');
-      const m = msg(data?.startMission);
-      addAlert({ type: 'MISSION', message: m, timestamp: new Date().toISOString(), severity: 'info' });
-      toast.success(m);
-    } catch { toast.error('Start mission failed'); }
+      addAlert({ type: 'MISSION', message: `Mission started (${waypoints.length} WP)`, timestamp: new Date().toISOString(), severity: 'info' });
+      toast.success('Mission started');
+    } catch (e) { toast.error(`Start failed: ${(e as Error).message}`); }
+    finally { setBusy(null); }
   }
 
   async function doPause() {
+    setBusy('pause');
     try {
-      const { data } = await pauseMut();
+      await stop();
       setMissionStatus('paused');
-      const m = msg(data?.pauseMission);
-      addAlert({ type: 'MISSION', message: m, timestamp: new Date().toISOString(), severity: 'info' });
-      toast.success(m);
-    } catch { toast.error('Pause mission failed'); }
+      addAlert({ type: 'MISSION', message: 'Mission paused', timestamp: new Date().toISOString(), severity: 'info' });
+      toast.success('Mission paused');
+    } catch (e) { toast.error(`Pause failed: ${(e as Error).message}`); }
+    finally { setBusy(null); }
   }
 
   return (
@@ -100,7 +103,7 @@ export function CommandPanel() {
       <div className="grid grid-cols-2 gap-2">
         <button
           onClick={doArm}
-          disabled={isArmed}
+          disabled={isArmed || busy === 'arm'}
           className="flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-semibold transition-all disabled:opacity-40"
           style={{
             background: isArmed ? 'var(--bg-elevated)' : 'rgba(16,185,129,0.15)',
@@ -113,7 +116,7 @@ export function CommandPanel() {
         </button>
         <button
           onClick={doDisarm}
-          disabled={!isArmed}
+          disabled={!isArmed || busy === 'disarm'}
           className="flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-semibold transition-all disabled:opacity-40"
           style={{
             background: !isArmed ? 'var(--bg-elevated)' : 'rgba(239,68,68,0.15)',
@@ -130,7 +133,7 @@ export function CommandPanel() {
       <div className="grid grid-cols-2 gap-2">
         <button
           onClick={missionStatus === 'running' ? doPause : doStart}
-          disabled={!isArmed || starting || pausing}
+          disabled={!isArmed || busy === 'start' || busy === 'pause'}
           className="flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-semibold transition-all disabled:opacity-40"
           style={{
             background: 'rgba(0,180,255,0.12)',
@@ -139,13 +142,13 @@ export function CommandPanel() {
           }}
         >
           {missionStatus === 'running'
-            ? <><Pause size={13} />{pausing ? 'Pausing…' : 'PAUSE'}</>
-            : <><Play size={13} />{starting ? 'Starting…' : 'START'}</>
+            ? <><Pause size={13} />{busy === 'pause' ? 'Pausing…' : 'PAUSE'}</>
+            : <><Play size={13} />{busy === 'start' ? 'Starting…' : 'START'}</>
           }
         </button>
         <button
           onClick={doRTH}
-          disabled={!isArmed || rthing}
+          disabled={!isArmed || busy === 'rth'}
           className="flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-semibold transition-all disabled:opacity-40"
           style={{
             background: 'rgba(245,158,11,0.12)',
@@ -154,7 +157,7 @@ export function CommandPanel() {
           }}
         >
           <Home size={13} />
-          {rthing ? 'Returning…' : 'RTH'}
+          {busy === 'rth' ? 'Returning…' : 'RTH'}
         </button>
       </div>
 
@@ -175,7 +178,7 @@ export function CommandPanel() {
       {/* Emergency stop */}
       <button
         onClick={doEStop}
-        disabled={estopping}
+        disabled={busy === 'estop'}
         className="w-full flex items-center justify-center gap-2 py-3 rounded-md font-bold text-sm transition-all"
         style={{
           background: 'rgba(239,68,68,0.2)',
@@ -187,7 +190,7 @@ export function CommandPanel() {
         onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(239,68,68,0.2)'; }}
       >
         <AlertTriangle size={15} />
-        {estopping ? 'STOPPING…' : 'EMERGENCY STOP'}
+        {busy === 'estop' ? 'STOPPING…' : 'EMERGENCY STOP'}
       </button>
     </div>
   );
