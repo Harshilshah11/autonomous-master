@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
 import toast from 'react-hot-toast';
-import { Settings, Wifi, BellRing, Map, Clock, Download, CheckCircle, XCircle, Cable, Plug, Cctv, Cpu, RefreshCw, Satellite, Usb, Radio as RadioIcon } from 'lucide-react';
+import { Settings, Wifi, BellRing, Map, Clock, Download, CheckCircle, XCircle, Cable, Plug, Cctv, Cpu, RefreshCw, Satellite, Usb, Radio as RadioIcon, Gauge } from 'lucide-react';
 import type { Session, Transport, CameraFeed } from '@/types';
 import { ping, fetchDeviceStatus } from '@/lib/api/commands';
 
@@ -10,13 +10,15 @@ type Tab = 'connection' | 'devices' | 'thresholds' | 'display' | 'camera' | 'ses
 
 interface UsbDevice { connected: boolean; port: string | null; name: string; }
 interface GpsDevice { connected: boolean; fix: string | null; satellites: number; reason?: string; }
+interface ImuDevice { connected: boolean; yaw: number | null; telemetry_rate_hz?: number; reason?: string; }
 interface DeviceSnapshot {
   ts: string;
   devices: {
-    arduino:  UsbDevice;
-    lidar:    UsbDevice;
-    gcs_link: UsbDevice;
-    gps:      GpsDevice;
+    controller: UsbDevice;
+    lidar:      UsbDevice;
+    gcs_link:   UsbDevice;
+    gps:        GpsDevice;
+    imu:        ImuDevice;
   };
 }
 
@@ -349,15 +351,15 @@ export default function SettingsPage() {
             <div className="gcs-card overflow-hidden">
               {[
                 {
-                  key: 'arduino',
-                  label: 'Arduino',
+                  key: 'controller',
+                  label: 'Controller',
                   icon: Usb,
                   detail: deviceSnapshot
-                    ? deviceSnapshot.devices.arduino.connected
-                      ? deviceSnapshot.devices.arduino.port ?? 'connected'
+                    ? deviceSnapshot.devices.controller.connected
+                      ? deviceSnapshot.devices.controller.port ?? 'connected'
                       : 'not detected'
                     : '—',
-                  ok: deviceSnapshot?.devices.arduino.connected ?? null,
+                  ok: deviceSnapshot?.devices.controller.connected ?? null,
                 },
                 {
                   key: 'lidar',
@@ -391,6 +393,17 @@ export default function SettingsPage() {
                       : deviceSnapshot.devices.gps.reason ?? 'no fix'
                     : '—',
                   ok: deviceSnapshot?.devices.gps.connected ?? null,
+                },
+                {
+                  key: 'imu',
+                  label: 'IMU',
+                  icon: Gauge,
+                  detail: deviceSnapshot
+                    ? deviceSnapshot.devices.imu.connected
+                      ? `yaw ${(deviceSnapshot.devices.imu.yaw ?? 0).toFixed(1)}° · ${(deviceSnapshot.devices.imu.telemetry_rate_hz ?? 0).toFixed(0)} Hz`
+                      : deviceSnapshot.devices.imu.reason ?? 'inactive'
+                    : '—',
+                  ok: deviceSnapshot?.devices.imu.connected ?? null,
                 },
               ].map(({ key, label, icon: Icon, detail, ok }, i, arr) => (
                 <div
@@ -434,7 +447,7 @@ export default function SettingsPage() {
             </div>
 
             <p className="text-[10px] px-1" style={{ color: 'var(--text-dim)' }}>
-              IMU, encoders, camera, and motor drivers are behind the Arduino firmware and are not reported here.
+              Encoders, camera, and motor drivers are behind the controller firmware and are not reported here.
             </p>
           </div>
         )}

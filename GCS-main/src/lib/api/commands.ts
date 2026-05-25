@@ -8,10 +8,10 @@
 // POST /drive            {speed, direction}
 // POST /mode             {botMode}
 // POST /status           {armStatus}  ("Active" / "Inactive")
-// POST /mission          {mission: [{lat,lng,alt,sequence,label?}, ...]}  (legacy, still works)
 // POST /create_new_mission  {name, description?, waypoints: [...]}
 // POST /set_mission_ugv     {mission_id}
 // POST /edit_mission_waypoints  {mission_id, waypoints: [...]}
+// POST /set_return_to_home  {return_to_home: bool}
 
 import { api, type GcsResponse } from './client';
 
@@ -40,9 +40,15 @@ export function setArm(armed: boolean): Promise<GcsResponse> {
   return api.post('status', { armStatus: armed ? 'Active' : 'Inactive' });
 }
 
-// ── Mission (legacy single-shot upload — still registered on server) ─────────
-export function uploadMission(waypoints: WaypointPayload[]): Promise<GcsResponse> {
-  return api.post('mission', { mission: waypoints });
+// ── Mission (single-shot upload) ─────────────────────────────────────────────
+// gcs_data_handler has no `mission` route; a one-shot upload maps to
+// create_new_mission, which persists the waypoints as a new "planned" mission
+// and returns its mission_id. Activate it with setMissionUgv to run it on the bot.
+export function uploadMission(
+  waypoints: WaypointPayload[],
+  name = `mission-${new Date().toISOString()}`,
+): Promise<GcsResponse> {
+  return api.post('create_new_mission', { name, waypoints });
 }
 
 // ── Mission management (new routes) ─────────────────────────────────────────
@@ -63,6 +69,11 @@ export function editMissionWaypoints(
   waypoints: WaypointPayload[],
 ): Promise<GcsResponse> {
   return api.post('edit_mission_waypoints', { mission_id: missionId, waypoints });
+}
+
+// ── Return to home ───────────────────────────────────────────────────────────
+export function returnToHome(enabled = true): Promise<GcsResponse> {
+  return api.post('set_return_to_home', { return_to_home: enabled });
 }
 
 // ── Telemetry ────────────────────────────────────────────────────────────────

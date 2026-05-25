@@ -1,9 +1,10 @@
+
 'use client';
 import toast from 'react-hot-toast';
 import { useState } from 'react';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
 import { ShieldAlert, Play, Pause, Home, Power, PowerOff, AlertTriangle } from 'lucide-react';
-import { setArm, stop, uploadMission } from '@/lib/api/commands';
+import { setArm, stop, uploadMission, setMissionUgv, returnToHome } from '@/lib/api/commands';
 
 export function CommandPanel() {
   const { isArmed, missionStatus, setArmed, setMissionStatus, addAlert, waypoints } = useVehicleStore();
@@ -51,14 +52,13 @@ export function CommandPanel() {
   }
 
   async function doRTH() {
-    // gcs_data_handler does not expose a dedicated RTH route — emulate by
-    // clearing the current mission so the vehicle holds, then alerting.
-    if (!confirm('Return to home? (clears active mission)')) return;
+    if (!confirm('Return to home?')) return;
     setBusy('rth');
     try {
-      await uploadMission([]);
+      const res = await returnToHome();
+      if (!res.ok) throw new Error(res.detail ?? 'RTH failed');
       setMissionStatus('idle');
-      addAlert({ type: 'RTH', message: 'RTH requested (mission cleared)', timestamp: new Date().toISOString(), severity: 'info' });
+      addAlert({ type: 'RTH', message: 'Return to home command sent', timestamp: new Date().toISOString(), severity: 'info' });
       toast.success('RTH requested');
     } catch (e) { toast.error(`RTH failed: ${(e as Error).message}`); }
     finally { setBusy(null); }
@@ -75,6 +75,9 @@ export function CommandPanel() {
       const payload = waypoints.map((w) => ({ lat: w.lat, lng: w.lng, alt: w.alt, sequence: w.sequence }));
       const res = await uploadMission(payload);
       if (!res.ok) throw new Error(res.detail ?? 'start failed');
+      // create_new_mission only plans the mission — activate it so the bot runs it.
+      const activate = await setMissionUgv(String(res.mission_id));
+      if (!activate.ok) throw new Error(activate.detail ?? 'activate failed');
       setMissionStatus('running');
       addAlert({ type: 'MISSION', message: `Mission started (${waypoints.length} WP)`, timestamp: new Date().toISOString(), severity: 'info' });
       toast.success('Mission started');

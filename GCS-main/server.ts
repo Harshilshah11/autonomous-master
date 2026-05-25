@@ -144,6 +144,42 @@ function send(res: ServerResponse, status: number, body: unknown) {
 const cameraDir = path.join(os.tmpdir(), 'arnobot-cameras');
 const cameraProcs = new Map<string, ChildProcess>();
 
+// Resolve the ffmpeg binary. FFMPEG_PATH wins; otherwise fall back to common
+// install locations before relying on PATH — the dev server often inherits a
+// stale PATH (ffmpeg installed after the launching shell/IDE started), which
+// makes a bare spawn('ffmpeg') fail with ENOENT.
+function resolveFfmpeg(): string {
+  const fromEnv = process.env.FFMPEG_PATH;
+  if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
+
+  const candidates: string[] = [];
+  const local = process.env.LOCALAPPDATA;
+  if (local) {
+    const wingetPkgs = path.join(local, 'Microsoft', 'WinGet', 'Packages');
+    try {
+      for (const entry of fs.readdirSync(wingetPkgs)) {
+        if (!entry.startsWith('Gyan.FFmpeg')) continue;
+        const pkgDir = path.join(wingetPkgs, entry);
+        for (const sub of fs.readdirSync(pkgDir)) {
+          candidates.push(path.join(pkgDir, sub, 'bin', 'ffmpeg.exe'));
+        }
+      }
+    } catch { /* WinGet dir may not exist */ }
+  }
+  candidates.push(
+    'C:\\ffmpeg\\bin\\ffmpeg.exe',
+    'C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe',
+    'C:\\ProgramData\\chocolatey\\bin\\ffmpeg.exe',
+  );
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return 'ffmpeg';   // last resort: rely on PATH
+}
+
+const ffmpegBin = resolveFfmpeg();
+console.log(`[camera] ffmpeg: ${ffmpegBin}`);
+
 function camFeedDir(camId: string): string {
   const dir = path.join(cameraDir, camId);
   fs.mkdirSync(dir, { recursive: true });
@@ -152,9 +188,129 @@ function camFeedDir(camId: string): string {
 
 function stopCamera(camId: string): void {
   const proc = cameraProcs.get(camId);
-  if (proc) {
+  if (!proc) return;
+  cameraProcs.delete(camId);
+  // Node's SIGTERM doesn't reliably stop ffmpeg on Windows, leaving orphaned
+  // transcoders that keep writing to the same HLS dir and fight over segments.
+  // Force-kill the whole process tree there; use SIGKILL elsewhere.
+  if (process.platform === 'win32' && proc.pid) {
+    spawn('taskkill', ['/pid', String(proc.pid), '/t', '/f'], { stdio: 'ignore' })
+      .on('error', () => proc.kill('SIGKILL'));
+  } else {
     proc.kill('SIGTERM');
-    cameraProcs.delete(camId);
+  }
+}
+
+// ── RTSP → WebRTC via go2rtc sidecar ────────────────────────────────────────
+// For true real-time (~100-250ms vs ~1s for the mpegts path) we hand the RTSP
+// stream to a go2rtc process that republishes it as WebRTC. This server proxies
+// the WHEP-style SDP exchange (browser offer → go2rtc answer) and registers
+// streams via go2rtc's REST API. The media itself flows peer-to-peer between the
+// browser and go2rtc — only signaling passes through here.
+
+const GO2RTC_API = 'http://127.0.0.1:1984';
+
+// Resolve the go2rtc binary. GO2RTC_PATH wins; otherwise check the project dir
+// (convenient: drop go2rtc.exe next to the app) and a couple of common installs
+// before relying on PATH.
+function resolveGo2rtc(): string | null {
+  const fromEnv = process.env.GO2RTC_PATH;
+  if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
+
+  const candidates = [
+    path.join(process.cwd(), 'go2rtc.exe'),
+    path.join(process.cwd(), 'go2rtc'),
+    'C:\\go2rtc\\go2rtc.exe',
+    'C:\\Program Files\\go2rtc\\go2rtc.exe',
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return process.platform === 'win32' ? 'go2rtc.exe' : 'go2rtc'; // last resort: PATH
+}
+
+let go2rtcProc: ChildProcess | null = null;
+let go2rtcStarting: Promise<void> | null = null;
+let go2rtcFailed = false; // hard failure (binary missing) — stop retrying
+
+async function pingGo2rtc(timeoutMs = 800): Promise<boolean> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    const r = await fetch(`${GO2RTC_API}/api/streams`, { signal: ctrl.signal });
+    clearTimeout(t);
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+function startGo2rtc(): Promise<void> {
+  if (go2rtcFailed) return Promise.reject(new Error('go2rtc unavailable'));
+  if (go2rtcStarting) return go2rtcStarting;
+
+  go2rtcStarting = (async () => {
+    // Already running (spawned by us earlier, or an external instance)?
+    if (await pingGo2rtc()) return;
+
+    const bin = resolveGo2rtc();
+    if (!bin) { go2rtcFailed = true; throw new Error('go2rtc binary not found'); }
+
+    // Minimal config: bind the API to localhost and quiet the logs. Written to
+    // tmp so we neither depend on nor clobber a go2rtc.yaml in the cwd.
+    const cfgPath = path.join(os.tmpdir(), 'arnobot-go2rtc.yaml');
+    fs.writeFileSync(cfgPath, 'api:\n  listen: "127.0.0.1:1984"\nlog:\n  level: warn\n');
+
+    const proc = spawn(bin, ['-config', cfgPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    proc.stderr?.on('data', (d: Buffer) => process.stdout.write(`[go2rtc] ${d}`));
+    proc.on('error', (err) => {
+      console.error(`[go2rtc] spawn failed: ${err.message}`);
+      go2rtcFailed = true;
+      go2rtcProc = null;
+    });
+    proc.on('exit', (code) => {
+      console.log(`[go2rtc] exited (${code})`);
+      go2rtcProc = null;
+      go2rtcStarting = null;
+    });
+    go2rtcProc = proc;
+
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if (go2rtcFailed) throw new Error('go2rtc failed to start');
+      if (await pingGo2rtc()) { console.log('[go2rtc] API ready'); return; }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    throw new Error('go2rtc API did not become ready');
+  })();
+
+  // Clear the latch on failure so a later request can retry; keep it cached on
+  // success so we don't re-ping for every signaling request.
+  go2rtcStarting.catch(() => { go2rtcStarting = null; });
+  return go2rtcStarting;
+}
+
+// Make the named stream reflect the current RTSP URL. Delete-then-create keeps
+// it deterministic if the user edits the URL (same camId, new source).
+async function ensureGo2rtcStream(name: string, rtspUrl: string): Promise<void> {
+  await fetch(`${GO2RTC_API}/api/streams?src=${encodeURIComponent(name)}`, { method: 'DELETE' })
+    .catch(() => { /* may not exist yet */ });
+  const r = await fetch(
+    `${GO2RTC_API}/api/streams?name=${encodeURIComponent(name)}&src=${encodeURIComponent(rtspUrl)}`,
+    { method: 'PUT' },
+  );
+  if (!r.ok) throw new Error(`go2rtc stream register failed (${r.status})`);
+}
+
+function stopGo2rtc(): void {
+  const p = go2rtcProc;
+  if (!p) return;
+  go2rtcProc = null;
+  if (process.platform === 'win32' && p.pid) {
+    spawn('taskkill', ['/pid', String(p.pid), '/t', '/f'], { stdio: 'ignore' })
+      .on('error', () => p.kill('SIGKILL'));
+  } else {
+    p.kill('SIGTERM');
   }
 }
 
@@ -176,6 +332,87 @@ async function handleCameraAPI(
   const parts = pathname.slice('/api/camera/'.length).split('/');
   const action = parts[0];
   const camId  = parts[1];
+
+  // POST /api/camera/webrtc/:id?u=<rtsp url>  — real-time WebRTC (~100-250ms).
+  // The browser sends its SDP offer as JSON { type, sdp }; we make sure go2rtc is
+  // up, (re)register the RTSP source under :id, forward the offer to go2rtc, and
+  // return its SDP answer. Media then flows browser↔go2rtc directly. On any
+  // failure (go2rtc missing/unreachable) we reply non-2xx so the client falls
+  // back to the mpegts path.
+  if (action === 'webrtc' && camId && req.method === 'POST') {
+    const rtsp = parse(req.url ?? '', true).query.u;
+    const rtspUrl = (typeof rtsp === 'string' ? rtsp : '').trim();
+    if (!rtspUrl) { send(res, 400, { ok: false, detail: 'missing ?u=<rtsp url>' }); return true; }
+
+    let offer: { type?: string; sdp?: string };
+    try { offer = (await readBody(req)) as { type?: string; sdp?: string }; }
+    catch { send(res, 400, { ok: false, detail: 'invalid offer' }); return true; }
+    if (!offer?.sdp) { send(res, 400, { ok: false, detail: 'offer.sdp required' }); return true; }
+
+    try {
+      await startGo2rtc();
+      await ensureGo2rtcStream(camId, rtspUrl);
+      const r = await fetch(`${GO2RTC_API}/api/webrtc?src=${encodeURIComponent(camId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'offer', sdp: offer.sdp }),
+      });
+      if (!r.ok) { send(res, 502, { ok: false, detail: `go2rtc webrtc ${r.status}` }); return true; }
+      const answer = await r.json();
+      send(res, 200, answer); // { type: 'answer', sdp }
+    } catch (e) {
+      send(res, 503, { ok: false, detail: (e as Error).message });
+    }
+    return true;
+  }
+
+  // GET /api/camera/live/:id?u=<rtsp url>  — low-latency MPEG-TS stream.
+  // ffmpeg copies the RTSP H.264 straight into an MPEG-TS pipe that the browser
+  // plays with mpegts.js (~1s glass-to-glass), instead of segmented HLS (~6-10s).
+  // One ffmpeg per open connection; closing the connection kills it (no orphans).
+  if (action === 'live' && camId && req.method === 'GET') {
+    const rtsp = parse(req.url ?? '', true).query.u;
+    const rtspUrl = (typeof rtsp === 'string' ? rtsp : '').trim();
+    if (!rtspUrl) { send(res, 400, { ok: false, detail: 'missing ?u=<rtsp url>' }); return true; }
+
+    res.writeHead(200, {
+      'Content-Type': 'video/mp2t',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-cache, no-store',
+      'Connection': 'keep-alive',
+    });
+
+    const proc = spawn(ffmpegBin, [
+      '-fflags', 'nobuffer', '-flags', 'low_delay',
+      '-probesize', '32', '-analyzeduration', '0',
+      '-rtsp_transport', 'tcp',
+      '-i', rtspUrl,
+      '-map', '0:v:0', '-an',          // video only (camera has no audio)
+      '-c:v', 'copy',                  // no transcode
+      '-f', 'mpegts',
+      '-muxdelay', '0', '-muxpreload', '0',
+      'pipe:1',
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    proc.stderr?.on('data', (d: Buffer) => process.stdout.write(`[cam:${camId}] ${d}`));
+    proc.on('error', (err) => {
+      console.error(`[cam:${camId}] ffmpeg spawn failed: ${err.message}`);
+      try { res.end(); } catch { /* already closed */ }
+    });
+    proc.stdout?.pipe(res);
+
+    const kill = () => {
+      if (process.platform === 'win32' && proc.pid) {
+        spawn('taskkill', ['/pid', String(proc.pid), '/t', '/f'], { stdio: 'ignore' })
+          .on('error', () => proc.kill('SIGKILL'));
+      } else {
+        proc.kill('SIGKILL');
+      }
+    };
+    req.on('close', kill);
+    proc.on('exit', () => { try { res.end(); } catch { /* already closed */ } });
+    return true;
+  }
 
   // POST /api/camera/start/:id  { rtspUrl }
   if (action === 'start' && camId && req.method === 'POST') {
@@ -203,8 +440,14 @@ async function handleCameraAPI(
       m3u8,
     ];
 
-    const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn(ffmpegBin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     proc.stderr?.on('data', (d: Buffer) => process.stdout.write(`[cam:${camId}] ${d}`));
+    // Without this, a failed spawn (e.g. ffmpeg not on PATH → ENOENT) emits an
+    // unhandled 'error' that crashes the whole server instead of just the feed.
+    proc.on('error', (err) => {
+      console.error(`[cam:${camId}] ffmpeg spawn failed: ${err.message}`);
+      cameraProcs.delete(camId);
+    });
     proc.on('exit', (code) => {
       console.log(`[cam:${camId}] ffmpeg exited (${code})`);
       cameraProcs.delete(camId);
@@ -295,6 +538,11 @@ async function handleBridge(req: IncomingMessage, res: ServerResponse, pathname:
 
   return false;
 }
+
+// Don't leave the go2rtc sidecar orphaned when this server stops.
+process.on('exit', stopGo2rtc);
+process.on('SIGINT', () => { stopGo2rtc(); process.exit(0); });
+process.on('SIGTERM', () => { stopGo2rtc(); process.exit(0); });
 
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
