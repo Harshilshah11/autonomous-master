@@ -17,6 +17,7 @@ import { spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as crypto from 'crypto';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = process.env.HOSTNAME ?? 'localhost';
@@ -256,10 +257,17 @@ function startGo2rtc(): Promise<void> {
     const bin = resolveGo2rtc();
     if (!bin) { go2rtcFailed = true; throw new Error('go2rtc binary not found'); }
 
-    // Minimal config: bind the API to localhost and quiet the logs. Written to
-    // tmp so we neither depend on nor clobber a go2rtc.yaml in the cwd.
+    // Minimal config: bind the API to localhost, quiet the logs, and tell go2rtc
+    // where ffmpeg is — we pull RTSP through ffmpeg (see ensureGo2rtcStream),
+    // which go2rtc can't do without the binary. Written to tmp so we neither
+    // depend on nor clobber a go2rtc.yaml in the cwd. (RTSP listener left at its
+    // default :8554 — go2rtc's ffmpeg source loops media back through it.)
     const cfgPath = path.join(os.tmpdir(), 'arnobot-go2rtc.yaml');
-    fs.writeFileSync(cfgPath, 'api:\n  listen: "127.0.0.1:1984"\nlog:\n  level: warn\n');
+    const cfg =
+      'api:\n  listen: "127.0.0.1:1984"\n' +
+      'log:\n  level: warn\n' +
+      `ffmpeg:\n  bin: '${ffmpegBin.replace(/\\/g, '/')}'\n`;
+    fs.writeFileSync(cfgPath, cfg);
 
     const proc = spawn(bin, ['-config', cfgPath], { stdio: ['ignore', 'pipe', 'pipe'] });
     proc.stderr?.on('data', (d: Buffer) => process.stdout.write(`[go2rtc] ${d}`));
@@ -290,16 +298,37 @@ function startGo2rtc(): Promise<void> {
   return go2rtcStarting;
 }
 
-// Make the named stream reflect the current RTSP URL. Delete-then-create keeps
-// it deterministic if the user edits the URL (same camId, new source).
-async function ensureGo2rtcStream(name: string, rtspUrl: string): Promise<void> {
-  await fetch(`${GO2RTC_API}/api/streams?src=${encodeURIComponent(name)}`, { method: 'DELETE' })
-    .catch(() => { /* may not exist yet */ });
+// go2rtc stream name derived from the RTSP URL, so multiple panels pointing at
+// the same camera share ONE upstream pull. Many cameras (e.g. SIYI-style air
+// units) allow only a single RTSP session — pulling twice starves both feeds.
+function go2rtcStreamName(rtspUrl: string): string {
+  return 'cam_' + crypto.createHash('sha1').update(rtspUrl).digest('hex').slice(0, 12);
+}
+
+// Ensure the stream exists and return its name. Created once and reused — never
+// deleted on connect, so a shared stream isn't torn out from under another
+// viewer. The source is `ffmpeg:…#video=copy`: go2rtc pulls via ffmpeg (no
+// transcode), which reads cameras whose SDP its native RTSP client rejects and
+// drops the extra audio/ONVIF tracks that otherwise stall the pull.
+async function ensureGo2rtcStream(rtspUrl: string): Promise<string> {
+  const name = go2rtcStreamName(rtspUrl);
+
+  // Already registered? List without ?src= so we don't probe (and connect) the camera.
+  try {
+    const list = await fetch(`${GO2RTC_API}/api/streams`);
+    if (list.ok) {
+      const all = (await list.json()) as Record<string, unknown>;
+      if (all && Object.prototype.hasOwnProperty.call(all, name)) return name;
+    }
+  } catch { /* fall through and create */ }
+
+  const src = `ffmpeg:${rtspUrl}#video=copy`;
   const r = await fetch(
-    `${GO2RTC_API}/api/streams?name=${encodeURIComponent(name)}&src=${encodeURIComponent(rtspUrl)}`,
+    `${GO2RTC_API}/api/streams?name=${encodeURIComponent(name)}&src=${encodeURIComponent(src)}`,
     { method: 'PUT' },
   );
   if (!r.ok) throw new Error(`go2rtc stream register failed (${r.status})`);
+  return name;
 }
 
 function stopGo2rtc(): void {
@@ -351,8 +380,8 @@ async function handleCameraAPI(
 
     try {
       await startGo2rtc();
-      await ensureGo2rtcStream(camId, rtspUrl);
-      const r = await fetch(`${GO2RTC_API}/api/webrtc?src=${encodeURIComponent(camId)}`, {
+      const streamName = await ensureGo2rtcStream(rtspUrl);
+      const r = await fetch(`${GO2RTC_API}/api/webrtc?src=${encodeURIComponent(streamName)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'offer', sdp: offer.sdp }),

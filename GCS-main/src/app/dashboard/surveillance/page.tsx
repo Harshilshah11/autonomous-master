@@ -190,13 +190,16 @@ function CameraPanel({
 
     startWebRTC().catch(() => startFallback());
 
-    // If WebRTC hasn't produced a frame quickly, drop to the mpegts fallback.
+    // If WebRTC hasn't produced a frame in time, drop to the mpegts fallback.
+    // Generous window: go2rtc's ffmpeg source has a ~2s cold start, and the
+    // fallback opens its own RTSP pull — firing too early would fight go2rtc's
+    // shared pull on single-session cameras.
     fallbackTimer = setTimeout(() => {
       if (cancelled || live) return;
       const v = videoRef.current;
       const hasFrame = !!v && (v.readyState >= 2 || v.currentTime > 0);
       if (!hasFrame) startFallback();
-    }, 4000);
+    }, 8000);
 
     return () => {
       cancelled = true;
@@ -308,7 +311,7 @@ function CameraPanel({
         )}
 
         {state.status !== 'live' && (
-          <div className="flex flex-col items-center gap-3 px-6 text-center relative z-10">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center z-10">
             {state.status === 'starting' && (
               <Loader2 size={26} className="animate-spin" style={{ color: 'var(--accent-yellow)' }} />
             )}
