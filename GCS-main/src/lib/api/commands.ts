@@ -8,8 +8,9 @@
 // POST /drive            {speed, direction}
 // POST /mode             {botMode}
 // POST /status           {armStatus}  ("Active" / "Inactive")
-// POST /create_new_mission  {name, description?, waypoints: [...]}
+// POST /create_new_mission  {name, description?, waypoints: [...], max_cruise_speed?}
 // POST /set_mission_ugv     {mission_id}
+// POST /set_mission_cruise_speed  {mission_id, max_cruise_speed}
 // POST /edit_mission_waypoints  {mission_id, waypoints: [...]}
 // POST /set_return_to_home  {return_to_home: bool}
 
@@ -47,8 +48,9 @@ export function setArm(armed: boolean): Promise<GcsResponse> {
 export function uploadMission(
   waypoints: WaypointPayload[],
   name = `mission-${new Date().toISOString()}`,
+  maxCruiseSpeed = 0,
 ): Promise<GcsResponse> {
-  return api.post('create_new_mission', { name, waypoints });
+  return api.post('create_new_mission', { name, waypoints, max_cruise_speed: maxCruiseSpeed });
 }
 
 // ── Mission management (new routes) ─────────────────────────────────────────
@@ -56,12 +58,32 @@ export function createNewMission(
   name: string,
   waypoints: WaypointPayload[],
   description = '',
+  maxCruiseSpeed = 0,
 ): Promise<GcsResponse> {
-  return api.post('create_new_mission', { name, description, waypoints });
+  return api.post('create_new_mission', { name, description, waypoints, max_cruise_speed: maxCruiseSpeed });
 }
 
 export function setMissionUgv(missionId: string): Promise<GcsResponse> {
   return api.post('set_mission_ugv', { mission_id: missionId });
+}
+
+// (re)activate the bot's currently-assigned mission. Takes no body.
+export function startMission(): Promise<GcsResponse> {
+  return api.post('start_mission', {});
+}
+
+// immediately halt the bot: mode=MANUAL, inputs zeroed, RTH cleared. Takes no body.
+export function emergencyStop(): Promise<GcsResponse> {
+  return api.post('emergency_stop', {});
+}
+
+// abort current mission and reset its waypoint progress. Takes no body.
+export function abortMission(): Promise<GcsResponse> {
+  return api.post('abort_mission', {});
+}
+
+export function setMissionCruiseSpeed(missionId: string, maxCruiseSpeed: number): Promise<GcsResponse> {
+  return api.post('set_mission_cruise_speed', { mission_id: missionId, max_cruise_speed: maxCruiseSpeed });
 }
 
 export function editMissionWaypoints(
@@ -85,6 +107,14 @@ export function fetchMissionStatus(signal?: AbortSignal): Promise<GcsResponse> {
 }
 export function fetchMissions(signal?: AbortSignal): Promise<GcsResponse> {
   return api.get('get_missions', signal);
+}
+
+// ── Home ────────────────────────────────────────────────────────────────────
+export function setHome(lat: number, lng: number): Promise<GcsResponse> {
+  return api.post('set_home', { lat, lng });
+}
+export function fetchHome(signal?: AbortSignal): Promise<GcsResponse> {
+  return api.get('get_home', signal);
 }
 
 // ── Utility ──────────────────────────────────────────────────────────────────

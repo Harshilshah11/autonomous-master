@@ -3,10 +3,10 @@ http_server.py — Flask HTTP front-end that shares the UART server's logic.
 
 Every HTTP request is translated into the common request envelope and dispatched
 through the same `Router.handle()` used by the UART transport, so both servers
-expose identical behaviour from one set of handlers (router.py + features/).
+expose identical behaviour from one set of handlers (router.py / telemetry.py).
 
     GET  /                 → service info + route list
-    GET  /<path>          → e.g. /ugv_odometry, /mission_status, /ping
+    GET  /<path>          → e.g. /telemetry, /ping
     POST /<path>          → e.g. /drive, /mode, /status, /mission  (JSON body)
 
 Responses are the same dicts the UART server returns, as JSON, with the HTTP

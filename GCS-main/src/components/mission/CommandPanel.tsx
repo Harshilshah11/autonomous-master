@@ -3,36 +3,47 @@
 import toast from 'react-hot-toast';
 import { useState } from 'react';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
-import { ShieldAlert, Play, Pause, Home, Power, PowerOff, AlertTriangle } from 'lucide-react';
-import { setArm, stop, uploadMission, setMissionUgv, returnToHome } from '@/lib/api/commands';
+import { ShieldAlert, Power, AlertTriangle, MapPin, LocateFixed } from 'lucide-react';
+import { startMission, emergencyStop, fetchHome } from '@/lib/api/commands';
 
 export function CommandPanel() {
-  const { isArmed, missionStatus, setArmed, setMissionStatus, addAlert, waypoints } = useVehicleStore();
-  const [busy, setBusy] = useState<null | 'arm' | 'disarm' | 'estop' | 'rth' | 'start' | 'pause'>(null);
+  const { missionStatus, setArmed, setMissionStatus, addAlert, setBotMode,
+          homePlacement, setHomePlacement, setHome, focusHome } = useVehicleStore();
+  const [busy, setBusy] = useState<null | 'startmission' | 'estop' | 'gethome'>(null);
 
-  async function doArm() {
-    if (!confirm('Arm vehicle? Motors will become active.')) return;
-    setBusy('arm');
+  async function doStartMission() {
+    setBusy('startmission');
     try {
-      const res = await setArm(true);
-      if (!res.ok) throw new Error(res.detail ?? 'ARM failed');
-      setArmed(true);
-      addAlert({ type: 'ARM', message: 'ARM Active command sent', timestamp: new Date().toISOString(), severity: 'warning' });
-      toast.success('ARM Active command sent');
-    } catch (e) { toast.error(`ARM failed: ${(e as Error).message}`); }
+      const res = await startMission();
+      if (!res.ok) throw new Error(res.detail ?? 'Start failed');
+      setMissionStatus('running');
+      addAlert({ type: 'MISSION', message: res.detail ?? 'Mission started', timestamp: new Date().toISOString(), severity: 'info' });
+      toast.success('Mission started');
+    } catch (e) { toast.error(`Start failed: ${(e as Error).message}`); }
     finally { setBusy(null); }
   }
 
-  async function doDisarm() {
-    setBusy('disarm');
+  function toggleHomePlacement() {
+    const next = !homePlacement;
+    setHomePlacement(next);
+    if (next) toast('Click on the map to set HOME');
+  }
+
+  async function doGetHome() {
+    setBusy('gethome');
     try {
-      const res = await setArm(false);
-      if (!res.ok) throw new Error(res.detail ?? 'DISARM failed');
-      setArmed(false);
-      setMissionStatus('idle');
-      addAlert({ type: 'DISARM', message: 'ARM Inactive command sent', timestamp: new Date().toISOString(), severity: 'info' });
-      toast.success('ARM Inactive command sent');
-    } catch (e) { toast.error(`DISARM failed: ${(e as Error).message}`); }
+      const res = await fetchHome();
+      if (!res.ok) throw new Error(res.detail ?? 'get_home failed');
+      const hc = res.home_coordinates as { lat?: number; lng?: number } | undefined;
+      if (!hc || typeof hc.lat !== 'number' || typeof hc.lng !== 'number') {
+        toast.error('No home set on vehicle yet');
+        return;
+      }
+      setHome({ lat: hc.lat, lng: hc.lng });
+      focusHome();
+      addAlert({ type: 'HOME', message: `Home loaded ${hc.lat.toFixed(5)}, ${hc.lng.toFixed(5)}`, timestamp: new Date().toISOString(), severity: 'info' });
+      toast.success('Home loaded from vehicle');
+    } catch (e) { toast.error(`Get home failed: ${(e as Error).message}`); }
     finally { setBusy(null); }
   }
 
@@ -40,59 +51,15 @@ export function CommandPanel() {
     if (!confirm('EMERGENCY STOP — cut all motors immediately?')) return;
     setBusy('estop');
     try {
-      // Stop motion, then disarm.
-      await stop().catch(() => null);
-      await setArm(false).catch(() => null);
+      const res = await emergencyStop();
+      if (!res.ok) throw new Error(res.detail ?? 'E-STOP failed');
+      // Backend forces MANUAL, zeroes inputs and clears RTH.
       setArmed(false);
+      setBotMode('MANUAL');
       setMissionStatus('idle');
-      addAlert({ type: 'ESTOP', message: 'Emergency stop issued', timestamp: new Date().toISOString(), severity: 'critical' });
+      addAlert({ type: 'ESTOP', message: res.detail ?? 'Emergency stop issued', timestamp: new Date().toISOString(), severity: 'critical' });
       toast.error('Emergency stop issued');
     } catch (e) { toast.error(`E-STOP failed: ${(e as Error).message}`); }
-    finally { setBusy(null); }
-  }
-
-  async function doRTH() {
-    if (!confirm('Return to home?')) return;
-    setBusy('rth');
-    try {
-      const res = await returnToHome();
-      if (!res.ok) throw new Error(res.detail ?? 'RTH failed');
-      setMissionStatus('idle');
-      addAlert({ type: 'RTH', message: 'Return to home command sent', timestamp: new Date().toISOString(), severity: 'info' });
-      toast.success('RTH requested');
-    } catch (e) { toast.error(`RTH failed: ${(e as Error).message}`); }
-    finally { setBusy(null); }
-  }
-
-  async function doStart() {
-    setBusy('start');
-    try {
-      // Re-upload the current waypoints to (re)activate the mission on the bot.
-      if (waypoints.length === 0) {
-        toast.error('No waypoints to start');
-        return;
-      }
-      const payload = waypoints.map((w) => ({ lat: w.lat, lng: w.lng, alt: w.alt, sequence: w.sequence }));
-      const res = await uploadMission(payload);
-      if (!res.ok) throw new Error(res.detail ?? 'start failed');
-      // create_new_mission only plans the mission — activate it so the bot runs it.
-      const activate = await setMissionUgv(String(res.mission_id));
-      if (!activate.ok) throw new Error(activate.detail ?? 'activate failed');
-      setMissionStatus('running');
-      addAlert({ type: 'MISSION', message: `Mission started (${waypoints.length} WP)`, timestamp: new Date().toISOString(), severity: 'info' });
-      toast.success('Mission started');
-    } catch (e) { toast.error(`Start failed: ${(e as Error).message}`); }
-    finally { setBusy(null); }
-  }
-
-  async function doPause() {
-    setBusy('pause');
-    try {
-      await stop();
-      setMissionStatus('paused');
-      addAlert({ type: 'MISSION', message: 'Mission paused', timestamp: new Date().toISOString(), severity: 'info' });
-      toast.success('Mission paused');
-    } catch (e) { toast.error(`Pause failed: ${(e as Error).message}`); }
     finally { setBusy(null); }
   }
 
@@ -102,65 +69,49 @@ export function CommandPanel() {
         Vehicle Commands
       </div>
 
-      {/* Arm / Disarm */}
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          onClick={doArm}
-          disabled={isArmed || busy === 'arm'}
-          className="flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-semibold transition-all disabled:opacity-40"
-          style={{
-            background: isArmed ? 'var(--bg-elevated)' : 'rgba(16,185,129,0.15)',
-            border: `1px solid ${isArmed ? 'var(--border-subtle)' : 'var(--accent-green)'}`,
-            color: isArmed ? 'var(--text-dim)' : 'var(--accent-green)',
-          }}
-        >
-          <Power size={13} />
-          ARM
-        </button>
-        <button
-          onClick={doDisarm}
-          disabled={!isArmed || busy === 'disarm'}
-          className="flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-semibold transition-all disabled:opacity-40"
-          style={{
-            background: !isArmed ? 'var(--bg-elevated)' : 'rgba(239,68,68,0.15)',
-            border: `1px solid ${!isArmed ? 'var(--border-subtle)' : 'var(--accent-red)'}`,
-            color: !isArmed ? 'var(--text-dim)' : 'var(--accent-red)',
-          }}
-        >
-          <PowerOff size={13} />
-          DISARM
-        </button>
-      </div>
+      {/* Start mission */}
+      <button
+        onClick={doStartMission}
+        disabled={busy === 'startmission'}
+        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-semibold transition-all disabled:opacity-40"
+        style={{
+          background: 'rgba(16,185,129,0.15)',
+          border: '1px solid var(--accent-green)',
+          color: 'var(--accent-green)',
+        }}
+      >
+        <Power size={13} />
+        {busy === 'startmission' ? 'STARTING…' : 'START'}
+      </button>
 
-      {/* Mission controls */}
+      {/* Home — set by clicking the map / fetch from vehicle */}
       <div className="grid grid-cols-2 gap-2">
         <button
-          onClick={missionStatus === 'running' ? doPause : doStart}
-          disabled={!isArmed || busy === 'start' || busy === 'pause'}
-          className="flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-semibold transition-all disabled:opacity-40"
+          onClick={toggleHomePlacement}
+          className="flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-semibold transition-all"
           style={{
-            background: 'rgba(0,180,255,0.12)',
-            border: '1px solid var(--accent)',
-            color: 'var(--accent)',
+            background: homePlacement ? 'rgba(245,158,11,0.18)' : 'rgba(16,185,129,0.08)',
+            border: `1px solid ${homePlacement ? 'var(--accent-yellow)' : 'var(--border-subtle)'}`,
+            color: homePlacement ? 'var(--accent-yellow)' : 'var(--text-secondary)',
           }}
         >
-          {missionStatus === 'running'
-            ? <><Pause size={13} />{busy === 'pause' ? 'Pausing…' : 'PAUSE'}</>
-            : <><Play size={13} />{busy === 'start' ? 'Starting…' : 'START'}</>
-          }
+          <MapPin size={13} />
+          {homePlacement ? 'CLICK MAP…' : 'SET HOME'}
         </button>
         <button
-          onClick={doRTH}
-          disabled={!isArmed || busy === 'rth'}
+          onClick={doGetHome}
+          disabled={busy === 'gethome'}
           className="flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-semibold transition-all disabled:opacity-40"
           style={{
-            background: 'rgba(245,158,11,0.12)',
-            border: '1px solid var(--accent-yellow)',
-            color: 'var(--accent-yellow)',
+            background: 'rgba(0,180,255,0.10)',
+            border: '1px solid var(--border-subtle)',
+            color: 'var(--text-secondary)',
           }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
         >
-          <Home size={13} />
-          {busy === 'rth' ? 'Returning…' : 'RTH'}
+          <LocateFixed size={13} />
+          {busy === 'gethome' ? 'Loading…' : 'GET HOME'}
         </button>
       </div>
 

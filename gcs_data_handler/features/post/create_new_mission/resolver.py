@@ -6,9 +6,7 @@ Bot — call `set_mission_ugv` afterwards to activate it for the UGV.
 
 from router import Handler, Request, Response
 from Utils.models import Mission
-
-# Reuse the waypoint-row builder from the legacy POST /mission feature.
-from features.post.mission.serializer import build_rows
+from waypoints import build_rows
 
 from .serializer import parse
 
@@ -23,6 +21,7 @@ class CreateNewMissionHandler(Handler):
             name=spec.name,
             description=spec.description,
             status="planned",
+            max_cruise_speed=spec.max_cruise_speed,
         )
         db.add(mission)
         db.flush()                          # populate mission.id for waypoint FKs

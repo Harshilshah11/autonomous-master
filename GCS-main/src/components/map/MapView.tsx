@@ -4,7 +4,9 @@ import { MapContainer, TileLayer, Marker, Polyline, Polygon, Tooltip, useMap, us
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Plus, Minus, LocateFixed } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
+import { setHome as apiSetHome } from '@/lib/api/commands';
 import { useTheme } from '@/components/providers/ThemeProvider';
 
 // Fix Leaflet's default icon path issue in Next.js
@@ -44,6 +46,22 @@ function waypointIcon(seq: number) {
   });
 }
 
+function homeIcon() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="30" height="30">
+      <circle cx="14" cy="14" r="13" fill="#f59e0b" stroke="white" stroke-width="2"/>
+      <path d="M6 14 L14 7 L22 14 Z" fill="white"/>
+      <rect x="9" y="13" width="10" height="8" fill="white"/>
+      <rect x="12" y="16" width="4" height="5" fill="#f59e0b"/>
+    </svg>`;
+  return L.divIcon({
+    html: svg,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+    className: '',
+  });
+}
+
 function VehicleMarker() {
   const { lat, lng } = useVehicleStore((s) => s.telemetry.position);
   const heading = useVehicleStore((s) => s.telemetry.heading);
@@ -74,12 +92,44 @@ function MapClickHandler({ mode }: { mode: 'view' | 'mission' | 'progress' }) {
   const addWaypoint = useVehicleStore((s) => s.addWaypoint);
   const waypoints = useVehicleStore((s) => s.waypoints);
   const botMode = useVehicleStore((s) => s.telemetry.botMode);
+  const homePlacement = useVehicleStore((s) => s.homePlacement);
+  const setHome = useVehicleStore((s) => s.setHome);
+  const setHomePlacement = useVehicleStore((s) => s.setHomePlacement);
+  const focusHome = useVehicleStore((s) => s.focusHome);
   useMapEvents({
     click(e) {
+      // Home placement takes priority over waypoint placement, in any mode.
+      if (homePlacement) {
+        const coords = { lat: e.latlng.lat, lng: e.latlng.lng };
+        setHome(coords);
+        setHomePlacement(false);
+        focusHome();
+        apiSetHome(coords.lat, coords.lng)
+          .then((r) => {
+            if (r.ok) toast.success(`Home set · ${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`);
+            else toast.error(r.detail ?? 'Set home failed');
+          })
+          .catch((err) => toast.error(`Set home failed: ${(err as Error).message}`));
+        return;
+      }
       if (mode !== 'mission' || botMode === 'MANUAL') return;
       addWaypoint({ lat: e.latlng.lat, lng: e.latlng.lng, alt: 10, sequence: waypoints.length });
     },
   });
+  return null;
+}
+
+// Flies to the home point when focusHome() bumps the nonce (Set/Get Home).
+function HomeFocuser() {
+  const map = useMap();
+  const home = useVehicleStore((s) => s.home);
+  const nonce = useVehicleStore((s) => s.homeFocusNonce);
+  useEffect(() => {
+    if (home && Number.isFinite(home.lat) && Number.isFinite(home.lng)) {
+      map.flyTo([home.lat, home.lng], Math.max(map.getZoom(), 17), { duration: 0.8 });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nonce]);
   return null;
 }
 
@@ -130,6 +180,8 @@ export function MapView({ mode = 'view', height = '100%' }: MapViewProps) {
   const breadcrumb       = useVehicleStore((s) => s.breadcrumb);
   const waypoints        = useVehicleStore((s) => s.waypoints);
   const geofence         = useVehicleStore((s) => s.geofence);
+  const home             = useVehicleStore((s) => s.home);
+  const homePlacement    = useVehicleStore((s) => s.homePlacement);
   const settings         = useVehicleStore((s) => s.settings);
   const removeWaypoint   = useVehicleStore((s) => s.removeWaypoint);
   const currentWpIdx     = useVehicleStore((s) => s.currentWaypointIndex);
@@ -212,7 +264,7 @@ export function MapView({ mode = 'view', height = '100%' }: MapViewProps) {
         center={[lat === 0 ? 20 : lat, lng === 0 ? 0 : lng]}
         zoom={lat === 0 && lng === 0 ? 2 : 17}
         maxZoom={22}
-        style={{ width: '100%', height: '100%', background: mapBg }}
+        style={{ width: '100%', height: '100%', background: mapBg, cursor: homePlacement ? 'crosshair' : undefined }}
         zoomControl={false}
         attributionControl={false}
       >
@@ -228,6 +280,7 @@ export function MapView({ mode = 'view', height = '100%' }: MapViewProps) {
         <MapController />
         <MapRefExposer mapRef={mapRef} />
         <MapClickHandler mode={mode} />
+        <HomeFocuser />
 
         {/* Geofence */}
         {settings.showGeofence && geofencePts.length >= 3 && (
@@ -286,6 +339,15 @@ export function MapView({ mode = 'view', height = '100%' }: MapViewProps) {
           );
         })}
 
+        {/* Home marker */}
+        {home && Number.isFinite(home.lat) && Number.isFinite(home.lng) && (
+          <Marker position={[home.lat, home.lng]} icon={homeIcon()} zIndexOffset={900}>
+            <Tooltip direction="top" offset={[0, -14]}>
+              <span style={{ fontSize: 11 }}>Home · {home.lat.toFixed(5)}, {home.lng.toFixed(5)}</span>
+            </Tooltip>
+          </Marker>
+        )}
+
         {/* Vehicle marker */}
         <VehicleMarker />
       </MapContainer>
@@ -305,7 +367,17 @@ export function MapView({ mode = 'view', height = '100%' }: MapViewProps) {
         </div>
       </div>
 
-      {mode === 'mission' && telemetry.botMode !== 'MANUAL' && (
+      {homePlacement && (
+        <div style={{
+          position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 1000,
+          background: overlayBg, border: '1px solid var(--accent-yellow)',
+          borderRadius: 20, padding: '4px 14px', backdropFilter: 'blur(4px)',
+        }}>
+          <span style={{ fontSize: 11, color: 'var(--accent-yellow)' }}>Click map to set HOME · press SET HOME again to cancel</span>
+        </div>
+      )}
+
+      {mode === 'mission' && telemetry.botMode !== 'MANUAL' && !homePlacement && (
         <div style={{
           position: 'absolute', bottom: 32, left: '50%', transform: 'translateX(-50%)', zIndex: 1000,
           background: overlayBg, border: `1px solid ${overlayBdr}`,

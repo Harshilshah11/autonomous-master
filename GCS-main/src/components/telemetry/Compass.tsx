@@ -3,9 +3,13 @@ import { useVehicleStore } from '@/lib/store/vehicleStore';
 
 const CX = 60, CY = 60, R = 52;
 
+// Round to 3 dp: Math.cos/sin differ at the last ULP between the Node (SSR) and
+// browser engines, which otherwise trips React's hydration check on SVG coords.
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+
 function polar(bearingDeg: number, r = R) {
   const rad = (bearingDeg - 90) * Math.PI / 180;
-  return { x: CX + r * Math.cos(rad), y: CY + r * Math.sin(rad) };
+  return { x: r3(CX + r * Math.cos(rad)), y: r3(CY + r * Math.sin(rad)) };
 }
 
 const DIRS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];

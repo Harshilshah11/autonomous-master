@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   LayoutDashboard, Crosshair, BellRing, Settings,
   ChevronLeft, ChevronRight, LogOut, Radio, Activity, Cctv,
@@ -10,7 +10,6 @@ import {
 import { useTheme } from '@/components/providers/ThemeProvider';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
 import toast from 'react-hot-toast';
-import { useEffect } from 'react';
 
 const NAV_ITEMS = [
   { href: '/dashboard',                  label: 'Dashboard',        icon: LayoutDashboard },

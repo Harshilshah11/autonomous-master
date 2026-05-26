@@ -113,6 +113,9 @@ interface VehicleStore {
   missionStatus: MissionStatus;
   connectionStatus: ConnectionStatus;
   geofence: BreadcrumbPoint[];
+  home: BreadcrumbPoint | null;
+  homePlacement: boolean;      // when true, a map click sets the home point
+  homeFocusNonce: number;      // bump to ask the map to fly to the home point
   settings: GCSSettings;
   currentWaypointIndex: number;  // index of waypoint bot is currently heading to
   missionStartTime: string | null; // ISO timestamp when mission started
@@ -136,6 +139,9 @@ interface VehicleStore {
   setConnectionStatus: (status: ConnectionStatus) => void;
   updateSettings: (patch: Partial<GCSSettings>) => void;
   setGeofence: (points: BreadcrumbPoint[]) => void;
+  setHome: (coords: BreadcrumbPoint | null) => void;
+  setHomePlacement: (on: boolean) => void;
+  focusHome: () => void;
   setBotMode: (mode: string) => void;
   clearWaypoints: () => void;
   addMission: (name: string) => void;
@@ -204,12 +210,15 @@ export const useVehicleStore = create<VehicleStore>()(
       missionStatus: 'idle',
       connectionStatus: { connected: false, latency: 0, lastHeartbeat: new Date().toISOString() },
       geofence: [],
+      home: null,
+      homePlacement: false,
+      homeFocusNonce: 0,
       settings: DEFAULT_SETTINGS,
       currentWaypointIndex: 0,
       missionStartTime: null,
       missions: [{ id: 'default', name: 'Mission 1', waypoints: [] }],
       currentMissionId: 'default',
-      cruiseSpeed: 5.0,
+      cruiseSpeed: 0,
       liveMission: null,
       serverMissions: [],
       activeMissionServerId: null,
@@ -261,7 +270,10 @@ export const useVehicleStore = create<VehicleStore>()(
       setConnectionStatus: (status) => set({ connectionStatus: status }),
       updateSettings: (patch) => set((state) => ({ settings: { ...state.settings, ...patch } })),
       setGeofence: (points) => set({ geofence: points }),
-      setBotMode: (mode) => set((state) => ({ 
+      setHome: (coords) => set({ home: coords }),
+      setHomePlacement: (on) => set({ homePlacement: on }),
+      focusHome: () => set((state) => ({ homeFocusNonce: state.homeFocusNonce + 1 })),
+      setBotMode: (mode) => set((state) => ({
         telemetry: { ...state.telemetry, botMode: mode } 
       })),
       clearWaypoints: () => set({ waypoints: [], currentWaypointIndex: 0, missionStartTime: null }),
@@ -305,7 +317,7 @@ export const useVehicleStore = create<VehicleStore>()(
       renameMission: (id, name) => set((state) => ({
         missions: state.missions.map(m => m.id === id ? { ...m, name } : m)
       })),
-      setCruiseSpeed: (speed) => set({ cruiseSpeed: Math.max(0, speed) }),
+      setCruiseSpeed: (speed) => set({ cruiseSpeed: Math.min(2, Math.max(0, speed)) }),
       setLiveMission: (mission) => set({ liveMission: mission }),
 
       setServerMissions: (missions, activeId) => set({
@@ -336,7 +348,8 @@ export const useVehicleStore = create<VehicleStore>()(
         botMode: state.telemetry.botMode,
         missions: state.missions,
         currentMissionId: state.currentMissionId,
-        cruiseSpeed: state.cruiseSpeed
+        cruiseSpeed: state.cruiseSpeed,
+        home: state.home,
       }),
       // Backfill defaults onto persisted state from earlier versions so newly
       // added settings fields aren't `undefined` on first render (otherwise

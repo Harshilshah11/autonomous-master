@@ -1,7 +1,7 @@
 'use client';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
 import { useEffect, useState } from 'react';
-import { Wifi, WifiOff, BatteryCharging, Clock } from 'lucide-react';
+import { Wifi, WifiOff, BatteryCharging, Clock, Satellite } from 'lucide-react';
 import { setMode } from '@/lib/api/commands';
 import { ThemeToggle } from '@/components/navigation/ThemeToggle';
 import toast from 'react-hot-toast';
@@ -11,6 +11,7 @@ interface HeaderProps { title: string; }
 export function Header({ title }: HeaderProps) {
   const setBotMode = useVehicleStore((s) => s.setBotMode);
   const [time, setTime] = useState('');
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     const tick = () => setTime(new Date().toLocaleTimeString('en-IN', { hour12: false }));
@@ -19,13 +20,22 @@ export function Header({ title }: HeaderProps) {
     return () => clearInterval(id);
   }, []);
 
+  // botMode is persisted (localStorage) and rehydrated before React hydration,
+  // so trust it only after mount — otherwise the server default ('MANUAL')
+  // differs from the client's rehydrated value and the markup mismatches.
+  useEffect(() => { setHydrated(true); }, []);
+
   const telemetry  = useVehicleStore((s) => s.telemetry);
   const connStatus = useVehicleStore((s) => s.connectionStatus);
   const isArmed    = useVehicleStore((s) => s.isArmed);
+  const botMode    = hydrated ? (telemetry?.botMode ?? 'MANUAL') : 'MANUAL';
 
   const batt      = telemetry?.battery?.percentage ?? 0;
   const battV     = telemetry?.battery?.voltage ?? 0;
   const battColor = batt > 50 ? 'var(--accent-green)' : batt > 20 ? 'var(--accent-yellow)' : 'var(--accent-red)';
+  const sats      = telemetry?.gps?.satellites ?? 0;
+  const gpsFix    = telemetry?.gps?.fix ?? '';
+  const satColor  = sats >= 6 ? 'var(--accent-green)' : sats >= 4 ? 'var(--accent-yellow)' : 'var(--accent-red)';
 
   async function switchMode(mode: 'MANUAL' | 'AUTO') {
     setBotMode(mode);
@@ -63,8 +73,8 @@ export function Header({ title }: HeaderProps) {
               onClick={() => switchMode('MANUAL')}
               className="px-2 py-0.5 rounded text-[10px] font-bold transition-all"
               style={{
-                background: (telemetry?.botMode === 'MANUAL' || !telemetry?.botMode) ? 'var(--accent)' : 'var(--bg-elevated)',
-                color: (telemetry?.botMode === 'MANUAL' || !telemetry?.botMode) ? '#000' : 'var(--text-secondary)',
+                background: botMode === 'MANUAL' ? 'var(--accent)' : 'var(--bg-elevated)',
+                color: botMode === 'MANUAL' ? '#000' : 'var(--text-secondary)',
                 border: '1px solid var(--border-subtle)',
                 fontFamily: 'var(--font-syne)',
                 letterSpacing: '0.05em',
@@ -76,8 +86,8 @@ export function Header({ title }: HeaderProps) {
               onClick={() => switchMode('AUTO')}
               className="px-2 py-0.5 rounded text-[10px] font-bold transition-all"
               style={{
-                background: telemetry?.botMode === 'AUTO' ? 'var(--accent)' : 'var(--bg-elevated)',
-                color: telemetry?.botMode === 'AUTO' ? '#000' : 'var(--text-secondary)',
+                background: botMode === 'AUTO' ? 'var(--accent)' : 'var(--bg-elevated)',
+                color: botMode === 'AUTO' ? '#000' : 'var(--text-secondary)',
                 border: '1px solid var(--border-subtle)',
                 fontFamily: 'var(--font-syne)',
                 letterSpacing: '0.05em',
@@ -106,6 +116,17 @@ export function Header({ title }: HeaderProps) {
         <div className="flex items-center gap-1" style={{ color: battColor }}>
           <BatteryCharging size={14} />
           <span style={{ fontFamily: 'var(--font-geist-mono)', fontSize: '11px', fontWeight: 600 }}>{battV.toFixed(1)}V</span>
+        </div>
+
+        {/* GPS / Satellites */}
+        <div className="flex items-center gap-1" style={{ color: satColor }}>
+          <Satellite size={13} />
+          <span style={{ fontFamily: 'var(--font-geist-mono)', fontSize: '11px', fontWeight: 600 }}>{sats}</span>
+          {gpsFix && (
+            <span style={{ fontFamily: 'var(--font-syne)', fontSize: '9px', letterSpacing: '0.05em', opacity: 0.8 }}>
+              {gpsFix}
+            </span>
+          )}
         </div>
 
         {/* Connection */}

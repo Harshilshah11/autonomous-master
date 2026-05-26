@@ -30,6 +30,7 @@ export function WaypointPanel() {
     telemetry, liveMission,
     serverMissions, activeMissionServerId,
     setServerMissions, setActiveMissionServerId, loadServerWaypoints,
+    cruiseSpeed,
   } = useVehicleStore();
 
   const fileRef = useRef<HTMLInputElement>(null);
@@ -115,7 +116,7 @@ export function WaypointPanel() {
     try {
       // New missions start empty — waypoints are added on the map locally and
       // persisted to this mission later via "Modify Waypoints".
-      const res = await createNewMission(name.trim(), []);
+      const res = await createNewMission(name.trim(), [], '', cruiseSpeed);
       if (!res.ok) throw new Error(res.detail ?? 'create_new_mission failed');
 
       const newId = res.mission_id as string;

@@ -1,5 +1,5 @@
-from sqlalchemy import BigInteger, Column, Float, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import BigInteger, Boolean, Column, Float, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from .utils import BaseModel, APP_PREFIX
 
@@ -28,8 +28,11 @@ class Bot(BaseModel):
     sigma_y = Column(Float, default=0.0)
     telemetry_rate_hz = Column(Float, default=0.0)
 
-    input_speed = Column(Integer, default=0)
-    input_steer = Column(Integer, default=0)
+    input_speed = Column(Float, default=0.0)
+    input_steer = Column(Float, default=0.0)
+
+    home_coordinates = Column(JSONB, default=dict, nullable=False)   # {"lat":..,"lng":..}
+    return_to_home = Column(Boolean, default=False)
 
     mission_id = Column(UUID(as_uuid=True),
                         ForeignKey(f"{APP_PREFIX}_mission.id", ondelete="SET NULL"),

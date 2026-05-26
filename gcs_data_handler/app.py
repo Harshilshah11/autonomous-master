@@ -31,7 +31,7 @@ class GCSDataHandler:
                  enable_http: bool = True, enable_uart: bool = True):
         # One scoped (thread-local) session registry shared by every transport.
         self.db_factory = scoped_session(SessionFactory)
-        self.router = Router(self.db_factory)   # shared core (features/ handlers)
+        self.router = Router(self.db_factory)                   # shared core
         self.transport = SerialTransport()
         self.http_host = http_host
         self.http_port = http_port

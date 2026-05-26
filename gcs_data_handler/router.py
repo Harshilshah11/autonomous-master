@@ -1,21 +1,27 @@
 """
-router.py — request/response routing core (shared by UART + HTTP).
+router.py — request/response routing core (HTTP-style) over UART or HTTP.
 
-The handler serves responses on demand instead of pushing. Each inbound JSON
-line is parsed into a `Request(method, path, body, id)`; a `Handler` registered
-for that (method, path) processes it and returns a `Response(status, ok, …)`,
-which the app sends straight back over the UART (correlated by `id`).
+This module defines the dispatch primitives only:
 
-The concrete handlers live in `features/` (one resolver + serializer per route);
-`features.default_handlers()` returns them all, and `Router` registers them by
-default. This module only defines the routing primitives: `Request`, `Response`,
-`Handler`, and `Router`.
+  * `Request` — parses an inbound JSON message (envelope or back-compat
+    shorthand) into a (method, path, body, id) tuple.
+  * `Response` — the outbound payload (`status`, `ok`, `path`, `id`, body+detail).
+  * `Handler` — abstract base; one subclass per (method, path) lives under
+    `features/<name>/resolver.py`.
+  * `Router` — maps (method, path) → Handler and runs one message through.
+
+The actual route logic lives in `features/`. Each feature folder has a
+`serializer.py` (request parsing + response shaping) and a `resolver.py`
+(the `Handler` subclass). `features.default_handlers()` returns them all
+in registration order.
 
 Request forms accepted:
   {"method":"GET","path":"ugv_odometry","id":7}
   {"method":"POST","path":"drive","body":{"speed":10,"direction":-5},"id":8}
-  {"get":"ugv_odometry"}                        # GET shorthand
-  {"speed":10,"direction":-5}                  # command shorthand (back-compat)
+  {"get":"ugv_odometry"}                       # GET shorthand
+  {"speed":10,"direction":-5}                  # drive shorthand
+  {"botMode":"AUTO"}                           # mode shorthand
+  {"armStatus":"ARMED"}                        # status shorthand
 """
 
 import logging
@@ -59,8 +65,6 @@ class Request:
             return cls("POST", "mode", msg, rid, rx_ts)
         if "armStatus" in msg:
             return cls("POST", "status", msg, rid, rx_ts)
-        if isinstance(msg.get("mission"), list):
-            return cls("POST", "mission", msg, rid, rx_ts)
         return cls("", "", msg, rid, rx_ts)   # unroutable
 
 
@@ -86,7 +90,7 @@ class Response:
 
 
 class Handler(ABC):
-    """Serves one (method, path) route."""
+    """Serves one (method, path) route. Implementations live in features/."""
     method: str = "GET"
     path: str = "base"
 
@@ -95,7 +99,6 @@ class Handler(ABC):
         ...
 
 
-# ── router ────────────────────────────────────────────────────────────
 class Router:
     """Maps (method, path) → Handler and dispatches one message to a response."""
 
@@ -105,7 +108,8 @@ class Router:
         # never share a Session across threads.
         self.db_factory = db_factory
         if handlers is None:
-            # Lazy import to avoid a cycle: features/ resolvers import this module.
+            # Lazy import: features/*/resolver.py imports Handler from this
+            # module, so we can't import features at module load time.
             from features import default_handlers
             handlers = default_handlers()
         self.routes = {(h.method, h.path): h for h in handlers}
@@ -139,6 +143,11 @@ class Router:
             req.method or "?", req.path or "?", resp.status,
             f" ({resp.detail})" if resp.detail else "",
         )
+        # Release the per-request transaction now (read-only GETs leave one open
+        # otherwise), so we don't hold locks / sit "idle in transaction" between
+        # requests. No-op after a handler that already committed. The response
+        # body was fully materialised by the serializer above.
+        db.rollback()
         return resp.to_message()
 
     def route_list(self) -> List[str]:

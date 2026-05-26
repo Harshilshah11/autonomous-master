@@ -3,9 +3,13 @@ import { useVehicleStore } from '@/lib/store/vehicleStore';
 
 const CX = 100, CY = 125, R = 88, MAX_SPEED = 10;
 
+// Round to 3 dp: Math.cos/sin differ at the last ULP between the Node (SSR) and
+// browser engines, which otherwise trips React's hydration check on SVG coords.
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+
 function polar(angleDeg: number, r = R) {
   const rad = angleDeg * Math.PI / 180;
-  return { x: CX + r * Math.cos(rad), y: CY - r * Math.sin(rad) };
+  return { x: r3(CX + r * Math.cos(rad)), y: r3(CY - r * Math.sin(rad)) };
 }
 
 function arcPath(from: number, to: number, r = R) {

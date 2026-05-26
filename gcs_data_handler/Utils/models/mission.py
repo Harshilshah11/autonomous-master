@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime
+from sqlalchemy import Column, String, Text, DateTime, Float
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from .utils import BaseModel, APP_PREFIX
@@ -13,6 +13,7 @@ class Mission(BaseModel):
     started_at = Column(DateTime(timezone=True), nullable=True)
     ended_at = Column(DateTime(timezone=True), nullable=True)
     waypoint_status = Column(JSONB, default=dict, nullable=False)
+    max_cruise_speed = Column(Float, default=0.0)   # m/s; 0 = unset
 
     waypoints = relationship("Waypoint", back_populates="mission", cascade="all, delete-orphan")
 

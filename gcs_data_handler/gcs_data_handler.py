@@ -13,8 +13,8 @@ Architecture (see each module):
     app.py        — GCSDataHandler: wires the shared core to both transports
     transport.py  — SerialTransport: UART connect/reconnect/send/poll
     http_server.py— Flask front-end; delegates to the same Router
-    router.py     — Router + routing primitives (the shared core)
-    features/     — one resolver + serializer per route; default_handlers() registry
+    router.py     — Router dispatch core: (method, path) -> response
+    features/     — one folder per route: resolver.py (Handler) + serializer.py
     config.py     — constants + logging
     device_ports.py — resolve USB devices by identity (not tty number)
 """
@@ -36,7 +36,7 @@ def main() -> None:
     )
     ap.add_argument("--http-host", default=HTTP_HOST)
     ap.add_argument("--http-port", type=int, default=HTTP_PORT,
-                    help="HTTP port (default 80; needs root). Or set HTTP_PORT.")
+                    help="HTTP port (default 8080; needs root). Or set HTTP_PORT.")
     ap.add_argument("--no-http", action="store_true", help="Disable the HTTP server.")
     ap.add_argument("--no-uart", action="store_true", help="Disable the UART server.")
     args = ap.parse_args()

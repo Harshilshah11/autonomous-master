@@ -17,7 +17,18 @@
       "Read(//c/Users/Harshil/Desktop/**)",
       "Bash(echo \"EXIT: $?\")",
       "Bash(python -c \"import sys; sys.argv=['x']; from router import Router; r = Router\\(db_factory=lambda: None\\); print\\('routes:'\\); [print\\(' ', m, p\\) for \\(m,p\\) in sorted\\(r.routes\\)]\")",
-      "Bash(python -c \"import app; print\\('app imports OK'\\)\")"
+      "Bash(python -c \"import app; print\\('app imports OK'\\)\")",
+      "Bash(findstr /i \"openapi webrtc whep whip\")",
+      "WebFetch(domain:api.github.com)",
+      "Bash(npx eslint *)",
+      "Bash(npm run *)",
+      "PowerShell(taskkill *)",
+      "PowerShell(Get-NetTCPConnection *)",
+      "PowerShell(Write-Output \"=== streams ===\"; try { \\(Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:1984/api/streams' -TimeoutSec 5\\).Content } catch { $_.Exception.Message }; Write-Output \"`n=== probe cam1 \\(RTSP pull test\\) ===\"; try { \\(Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:1984/api/streams?src=cam1' -TimeoutSec 12\\).Content } catch { $_.Exception.Message })",
+      "PowerShell(Out-Null *)",
+      "PowerShell(Recv diag *)",
+      "PowerShell(Write-Output \"=== live go2rtc \\(1984\\) streams ===\"; try { $j=\\(Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:1984/api/streams' -TimeoutSec 8 | ConvertFrom-Json\\); foreach\\($n in $j.PSObject.Properties.Name\\){ $s=$j.$n; $pr=$s.producers; $cn=$s.consumers; $b= if\\($pr\\){$pr[0].bytes_recv}else{'-'}; $src= if\\($pr\\){$pr[0].url}else{'?'}; \"$n : bytes_recv=$b consumers=$\\($cn.Count\\) src=$src\" } } catch { $_.Exception.Message })",
+      "PowerShell(Join-Path *)"
     ]
   }
 }

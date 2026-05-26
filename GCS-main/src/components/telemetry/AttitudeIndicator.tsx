@@ -4,6 +4,10 @@ import { useVehicleStore } from '@/lib/store/vehicleStore';
 const SIZE = 120, CX = 60, CY = 60, R = 52;
 const CLIP_ID = 'adi-clip';
 
+// Round to 3 dp: Math.cos/sin differ at the last ULP between the Node (SSR) and
+// browser engines, which otherwise trips React's hydration check on SVG coords.
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+
 export function AttitudeIndicator() {
   const { roll, pitch } = useVehicleStore((s) => s.telemetry.attitude);
 
@@ -83,10 +87,10 @@ export function AttitudeIndicator() {
         {/* Roll indicator arc at top */}
         {[-30, -20, -10, 10, 20, 30].map((a) => {
           const rad = (a - 90) * Math.PI / 180;
-          const x1 = CX + (R - 6) * Math.cos(rad);
-          const y1 = CY + (R - 6) * Math.sin(rad);
-          const x2 = CX + R * Math.cos(rad);
-          const y2 = CY + R * Math.sin(rad);
+          const x1 = r3(CX + (R - 6) * Math.cos(rad));
+          const y1 = r3(CY + (R - 6) * Math.sin(rad));
+          const x2 = r3(CX + R * Math.cos(rad));
+          const y2 = r3(CY + R * Math.sin(rad));
           return <line key={a} x1={x1} y1={y1} x2={x2} y2={y2} stroke="white" strokeWidth="1" opacity="0.5" />;
         })}
         {/* Roll pointer */}

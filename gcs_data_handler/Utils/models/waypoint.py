@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Float, Integer, String, ForeignKey, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 from .utils import BaseModel, APP_PREFIX
@@ -17,6 +17,8 @@ class Waypoint(BaseModel):
     altitude = Column(Float, default=0.0)
     label = Column(String(100), default="")
     reached_at = Column(DateTime(timezone=True), nullable=True)
+    halt = Column(Boolean, default=False)
+    halt_seconds = Column(Float, default=0.0)   # 0 = hold until operator resumes
 
     mission = relationship("Mission", back_populates="waypoints")
 

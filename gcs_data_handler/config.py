@@ -24,7 +24,7 @@ RECONNECT_DELAY_S = 2.0       # wait between serial reconnect attempts
 # Same routes as the UART server. Port 80 needs root / CAP_NET_BIND_SERVICE;
 # override with HTTP_PORT (e.g. 8080) when running unprivileged.
 HTTP_HOST = os.environ.get("HTTP_HOST", "0.0.0.0")
-HTTP_PORT = int(os.environ.get("HTTP_PORT", "80"))
+HTTP_PORT = int(os.environ.get("HTTP_PORT", "8080"))
 
 
 def setup_logging() -> None:

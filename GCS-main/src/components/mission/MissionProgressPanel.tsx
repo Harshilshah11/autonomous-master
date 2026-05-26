@@ -1,11 +1,16 @@
 'use client';
 import { useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
 import { useVehicleStore } from '@/lib/store/vehicleStore';
 import {
   CheckCircle2, Circle, Navigation, Clock, Route,
   Flag, Zap, Target, TrendingUp, Plus, Minus, Square,
+  Pause, Play, Home, Ban, ToggleLeft, ToggleRight,
 } from 'lucide-react';
-import { drive, stop } from '@/lib/api/commands';
+import {
+  drive, stop, uploadMission, setMissionUgv,
+  setMissionCruiseSpeed, abortMission, returnToHome, setMode,
+} from '@/lib/api/commands';
 
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000; // metres
@@ -30,16 +35,105 @@ export function MissionProgressPanel() {
   const missionStart    = useVehicleStore((s) => s.missionStartTime);
   const telemetry       = useVehicleStore((s) => s.telemetry);
   const advanceWaypoint = useVehicleStore((s) => s.advanceWaypoint);
-  const cruiseSpeed     = useVehicleStore((s) => s.cruiseSpeed);
-  const setCruiseSpeed  = useVehicleStore((s) => s.setCruiseSpeed);
-  const liveMission     = useVehicleStore((s) => s.liveMission);
+  const cruiseSpeed            = useVehicleStore((s) => s.cruiseSpeed);
+  const setCruiseSpeed         = useVehicleStore((s) => s.setCruiseSpeed);
+  const activeMissionServerId  = useVehicleStore((s) => s.activeMissionServerId);
+  const liveMission            = useVehicleStore((s) => s.liveMission);
+  const setMissionStatus = useVehicleStore((s) => s.setMissionStatus);
+  const addAlert         = useVehicleStore((s) => s.addAlert);
+  const setBotMode       = useVehicleStore((s) => s.setBotMode);
 
   const [elapsed, setElapsed] = useState(0);
+  const [busy, setBusy] = useState<null | 'abort' | 'pause' | 'startwp' | 'rth' | 'halt' | 'mode'>(null);
+
+  async function doAbort() {
+    if (!confirm('Abort mission? Waypoint progress will be reset.')) return;
+    setBusy('abort');
+    try {
+      const res = await abortMission();
+      if (!res.ok) throw new Error(res.detail ?? 'Abort failed');
+      setMissionStatus('idle');
+      addAlert({ type: 'MISSION', message: res.detail ?? 'Mission aborted', timestamp: new Date().toISOString(), severity: 'warning' });
+      toast.success('Mission aborted');
+    } catch (e) { toast.error(`Abort failed: ${(e as Error).message}`); }
+    finally { setBusy(null); }
+  }
+
+  async function doPause() {
+    setBusy('pause');
+    try {
+      await stop();
+      setMissionStatus('paused');
+      addAlert({ type: 'MISSION', message: 'Mission paused', timestamp: new Date().toISOString(), severity: 'info' });
+      toast.success('Mission paused');
+    } catch (e) { toast.error(`Pause failed: ${(e as Error).message}`); }
+    finally { setBusy(null); }
+  }
+
+  async function doStartWaypoints() {
+    setBusy('startwp');
+    try {
+      if (waypoints.length === 0) {
+        toast.error('No waypoints to start');
+        return;
+      }
+      const payload = waypoints.map((w) => ({ lat: w.lat, lng: w.lng, alt: w.alt, sequence: w.sequence }));
+      const res = await uploadMission(payload, undefined, cruiseSpeed);
+      if (!res.ok) throw new Error(res.detail ?? 'upload failed');
+      const missionId = String(res.mission_id);
+      const activate = await setMissionUgv(missionId);
+      if (!activate.ok) throw new Error(activate.detail ?? 'set_mission_ugv failed');
+      setMissionStatus('running');
+      addAlert({ type: 'MISSION', message: `Mission started (${waypoints.length} WP, ${cruiseSpeed > 0 ? cruiseSpeed + ' m/s' : 'default speed'})`, timestamp: new Date().toISOString(), severity: 'info' });
+      toast.success('Mission started');
+    } catch (e) { toast.error(`Start failed: ${(e as Error).message}`); }
+    finally { setBusy(null); }
+  }
+
+  async function doRTH() {
+    if (!confirm('Return to home?')) return;
+    setBusy('rth');
+    try {
+      const res = await returnToHome();
+      if (!res.ok) throw new Error(res.detail ?? 'RTH failed');
+      setMissionStatus('idle');
+      addAlert({ type: 'RTH', message: 'Return to home command sent', timestamp: new Date().toISOString(), severity: 'info' });
+      toast.success('RTH requested');
+    } catch (e) { toast.error(`RTH failed: ${(e as Error).message}`); }
+    finally { setBusy(null); }
+  }
+
+  async function doHalt() {
+    setBusy('halt');
+    try {
+      await stop();
+      setMissionStatus('paused');
+      addAlert({ type: 'HALT', message: 'Halt issued — motion stopped, still armed', timestamp: new Date().toISOString(), severity: 'warning' });
+      toast.success('Halt — motion stopped');
+    } catch (e) { toast.error(`Halt failed: ${(e as Error).message}`); }
+    finally { setBusy(null); }
+  }
+
+  async function doToggleMode() {
+    const currentMode = telemetry.botMode;
+    const newMode = currentMode === 'AUTO' ? 'MANUAL' : 'AUTO';
+    setBusy('mode');
+    try {
+      const res = await setMode(newMode);
+      if (!res.ok) throw new Error(res.detail ?? 'mode change failed');
+      setBotMode(newMode);
+      addAlert({ type: 'MODE', message: `Mode changed to ${newMode}`, timestamp: new Date().toISOString(), severity: 'info' });
+      toast.success(`Mode → ${newMode}`);
+    } catch (e) { toast.error(`Mode change failed: ${(e as Error).message}`); }
+    finally { setBusy(null); }
+  }
+
+  const isAuto = telemetry.botMode === 'AUTO';
 
   // Sync cruiseSpeed with actual speed when not running a mission
   useEffect(() => {
     if (missionStatus !== 'running' && telemetry.speed > 0) {
-      setCruiseSpeed(Math.round(telemetry.speed));
+      setCruiseSpeed(Math.min(2, Math.round(telemetry.speed * 10) / 10));
     }
   }, [missionStatus, telemetry.speed, setCruiseSpeed]);
 
@@ -193,6 +287,90 @@ export function MissionProgressPanel() {
         </div>
       </div>
       
+      {/* ── Mission Controls Card ── */}
+      <div className="gcs-card p-4 flex flex-col gap-2">
+        <div className="text-[10px] uppercase tracking-widest" style={{ color: 'var(--text-secondary)' }}>
+          Mission Controls
+        </div>
+
+        {/* Pause/Start + RTH */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={missionStatus === 'running' ? doPause : doStartWaypoints}
+            disabled={busy === 'pause' || busy === 'startwp'}
+            className="flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-semibold transition-all disabled:opacity-40"
+            style={{
+              background: 'rgba(0,180,255,0.12)',
+              border: '1px solid var(--accent)',
+              color: 'var(--accent)',
+            }}
+          >
+            {missionStatus === 'running'
+              ? <><Pause size={13} />{busy === 'pause' ? 'Pausing…' : 'PAUSE'}</>
+              : <><Play size={13} />{busy === 'startwp' ? 'Starting…' : 'START'}</>
+            }
+          </button>
+          <button
+            onClick={doRTH}
+            disabled={busy === 'rth'}
+            className="flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-semibold transition-all disabled:opacity-40"
+            style={{
+              background: 'rgba(245,158,11,0.12)',
+              border: '1px solid var(--accent-yellow)',
+              color: 'var(--accent-yellow)',
+            }}
+          >
+            <Home size={13} />
+            {busy === 'rth' ? 'Returning…' : 'RTH'}
+          </button>
+        </div>
+
+        {/* Abort + Halt */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={doAbort}
+            disabled={busy === 'abort'}
+            className="flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-semibold transition-all disabled:opacity-40"
+            style={{
+              background: 'rgba(245,158,11,0.15)',
+              border: '1px solid var(--accent-yellow)',
+              color: 'var(--accent-yellow)',
+            }}
+          >
+            <Ban size={13} />
+            {busy === 'abort' ? 'ABORTING…' : 'ABORT'}
+          </button>
+          <button
+            onClick={doHalt}
+            disabled={busy === 'halt'}
+            className="flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-semibold transition-all disabled:opacity-40"
+            style={{
+              background: 'rgba(239,68,68,0.12)',
+              border: '1px solid var(--accent-red)',
+              color: 'var(--accent-red)',
+            }}
+          >
+            <Square size={12} fill="currentColor" />
+            {busy === 'halt' ? 'Halting…' : 'HALT'}
+          </button>
+        </div>
+
+        {/* Mode toggle */}
+        <button
+          onClick={doToggleMode}
+          disabled={busy === 'mode'}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-semibold transition-all disabled:opacity-40"
+          style={{
+            background: isAuto ? 'rgba(0,180,255,0.12)' : 'rgba(245,158,11,0.12)',
+            border: `1px solid ${isAuto ? 'var(--accent)' : 'var(--accent-yellow)'}`,
+            color: isAuto ? 'var(--accent)' : 'var(--accent-yellow)',
+          }}
+        >
+          {isAuto ? <ToggleRight size={13} /> : <ToggleLeft size={13} />}
+          {busy === 'mode' ? '…' : isAuto ? 'AUTO' : 'MANUAL'}
+        </button>
+      </div>
+
       {/* ── Speed Control Card ── */}
       <div className="gcs-card p-4 flex flex-col gap-3">
         <div className="flex items-center justify-between">
@@ -211,54 +389,48 @@ export function MissionProgressPanel() {
 
         {/* Set Speed Display */}
         <div className="flex items-center justify-center gap-4 py-1">
-          <button 
-            onClick={() => { 
-              const currentActual = telemetry.speed || 0;
-              // If target is stale (far from actual) or 0, use actual as base
-              const isStale = Math.abs(cruiseSpeed - currentActual) > 10;
-              const base = (isStale || cruiseSpeed === 0) ? currentActual : cruiseSpeed;
-              const ns = Math.max(0, Math.round(base - 5)); 
-              setCruiseSpeed(ns); 
+          <button
+            onClick={() => {
+              const ns = Math.max(0, Math.round((cruiseSpeed - 0.1) * 10) / 10);
+              setCruiseSpeed(ns);
               drive(ns, 0).catch(() => null);
+              if (isAuto && activeMissionServerId) setMissionCruiseSpeed(activeMissionServerId, ns).catch(() => null);
             }}
             className="p-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-subtle)] hover:border-[var(--accent-red)] text-[var(--accent-red)] transition-all"
-            title="Decrease -5"
+            title="Decrease -0.1"
           >
             <Minus size={16} />
           </button>
 
           <div className="flex flex-col items-center">
             <span className="text-[8px] uppercase text-[var(--text-dim)]">Target Speed</span>
-            <span className="text-2xl font-mono font-bold text-[var(--accent)]">{cruiseSpeed.toFixed(0)}</span>
+            <span className="text-2xl font-mono font-bold text-[var(--accent)]">{cruiseSpeed.toFixed(1)}</span>
             <span className="text-[9px] text-[var(--text-dim)]">m/s</span>
           </div>
 
-          <button 
-            onClick={() => { 
-              const currentActual = telemetry.speed || 0;
-              // If target is stale (far from actual) or 0, use actual as base
-              const isStale = Math.abs(cruiseSpeed - currentActual) > 10;
-              const base = (isStale || cruiseSpeed === 0) ? currentActual : cruiseSpeed;
-              const ns = Math.round(base + 5); 
-              setCruiseSpeed(ns); 
+          <button
+            onClick={() => {
+              const ns = Math.min(2, Math.round((cruiseSpeed + 0.1) * 10) / 10);
+              setCruiseSpeed(ns);
               drive(ns, 0).catch(() => null);
+              if (isAuto && activeMissionServerId) setMissionCruiseSpeed(activeMissionServerId, ns).catch(() => null);
             }}
             className="p-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-subtle)] hover:border-[var(--accent-green)] text-[var(--accent-green)] transition-all"
-            title="Increase +5"
+            title="Increase +0.1"
           >
             <Plus size={16} />
           </button>
         </div>
 
         {/* Stop Button */}
-        <button 
+        <button
           onClick={() => { setCruiseSpeed(0); stop().catch(() => null); }}
           className="w-full flex items-center justify-center gap-2 py-2.5 rounded-md text-xs font-bold uppercase tracking-wider transition-all"
-          style={{ 
-            background: 'rgba(239,68,68,0.15)', 
-            border: '1px solid var(--accent-red)', 
+          style={{
+            background: 'rgba(239,68,68,0.15)',
+            border: '1px solid var(--accent-red)',
             color: 'var(--accent-red)',
-            boxShadow: '0 0 10px rgba(239,68,68,0.1)' 
+            boxShadow: '0 0 10px rgba(239,68,68,0.1)'
           }}
           onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.25)'}
           onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.15)'}

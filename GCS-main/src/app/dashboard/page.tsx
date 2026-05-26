@@ -10,7 +10,7 @@ import { SpeedGauge } from '@/components/telemetry/SpeedGauge';
 import { Compass } from '@/components/telemetry/Compass';
 import { BatteryCard } from '@/components/telemetry/BatteryCard';
 import { XYZCard } from '@/components/telemetry/XYZCard';
-import { Activity, Navigation, Gauge, Radio } from 'lucide-react';
+import { Activity, Navigation, Gauge, Radio, Satellite, Signal } from 'lucide-react';
 
 function StatChip({ label, value, unit, color, icon: Icon }: {
   label: string; value: string; unit: string; color: string; icon: React.ElementType;
@@ -38,10 +38,11 @@ export default function DashboardPage() {
   return (
     <div className="p-4 flex flex-col gap-4 h-full min-h-0">
       {/* Stat chips */}
-      <div className="grid grid-cols-4 gap-3 shrink-0">
+      <div className="grid grid-cols-5 gap-3 shrink-0">
         <StatChip label="Speed" value={telemetry.speed.toFixed(1)} unit="m/s" color="var(--accent)" icon={Gauge} />
         <StatChip label="Heading" value={Math.round(telemetry.heading).toString().padStart(3, '0')} unit="°" color="var(--accent-green)" icon={Navigation} />
         <StatChip label="GPS" value={`${telemetry.position.lat.toFixed(4)}, ${telemetry.position.lng.toFixed(4)}`} unit="" color="var(--accent-yellow)" icon={Activity} />
+        <StatChip label="Satellites" value={String(telemetry.gps.satellites)} unit={telemetry.gps.fix ? `· ${telemetry.gps.fix}` : ''} color={telemetry.gps.satellites >= 6 ? 'var(--accent-green)' : telemetry.gps.satellites >= 4 ? 'var(--accent-yellow)' : 'var(--accent-red)'} icon={Satellite} />
         <StatChip label="Latency" value={String(connStatus.latency)} unit="ms" color={connStatus.connected ? 'var(--accent-green)' : 'var(--accent-red)'} icon={Radio} />
       </div>
 
